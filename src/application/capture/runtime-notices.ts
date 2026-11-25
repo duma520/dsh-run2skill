@@ -21,6 +21,7 @@ export class RuntimeNotices {
   readonly #now
   readonly #limit
   readonly #aggregationWindowMs
+  readonly #onRecord
   readonly #notices = new Map<string, RuntimeNotice>()
   #unsavedComplete = true
 
@@ -28,10 +29,15 @@ export class RuntimeNotices {
     now?: () => number
     limit?: number
     aggregationWindowMs?: number
+    // Observability hook. Notices live in memory only, so the plugin's file
+    // log is the only place the real health code can survive a crash or a
+    // stuck recovery loop. Kept optional so tests stay free of side effects.
+    onRecord?: (notice: RuntimeNotice) => void
   } = {}) {
     this.#now = options.now ?? Date.now
     this.#limit = options.limit ?? 256
     this.#aggregationWindowMs = options.aggregationWindowMs ?? 30_000
+    this.#onRecord = options.onRecord
   }
 
   record(input: RuntimeNoticeInput): void {
@@ -85,6 +91,14 @@ export class RuntimeNotices {
       if (oldest === undefined) break
       if (this.#notices.get(oldest)?.kind === 'UNSAVED_SIGNAL') this.#unsavedComplete = false
       this.#notices.delete(oldest)
+    }
+    const stored = this.#notices.get(key)
+    if (stored !== undefined) {
+      try {
+        this.#onRecord?.(stored)
+      } catch {
+        // Observability must never break capture.
+      }
     }
   }
 

@@ -122,6 +122,7 @@ export class RecoveryLifecycle<Candidate = TurnIngressCandidate> {
   #drainPromise: Promise<void> | undefined
   #probeTimer: ScheduledHandle | undefined
   #scanAbort = new AbortController()
+  readonly #reportFailure: (error: unknown) => void
 
   constructor(
     private readonly factory: RecoveryRuntimeFactory<Candidate>,
@@ -137,6 +138,7 @@ export class RecoveryLifecycle<Candidate = TurnIngressCandidate> {
       yieldNow?: () => Promise<void>
       now?: () => number
       coordinate?: (candidate: Candidate) => CandidateCoordinate
+      reportFailure?: (error: unknown) => void
     } = {},
   ) {
     this.#maxQueuedCandidates = options.maxQueuedCandidates ?? CAPTURE_QUEUE_LIMIT
@@ -159,6 +161,7 @@ export class RecoveryLifecycle<Candidate = TurnIngressCandidate> {
     this.#yieldNow = options.yieldNow ?? (() => new Promise((resolve) => setTimeout(resolve, 0)))
     this.#now = options.now ?? Date.now
     this.#coordinate = options.coordinate ?? defaultCoordinate
+    this.#reportFailure = options.reportFailure ?? (() => {})
   }
 
   get status(): RecoveryLifecycleStatus {
@@ -275,8 +278,14 @@ export class RecoveryLifecycle<Candidate = TurnIngressCandidate> {
       this.#status = 'READY'
       this.#recoveryLag = false
       if (this.#queue.length > 0) this.#beginDrain()
-    } catch {
-      if (!this.#disposed) this.#degrade('RECOVERY_BACKEND_UNAVAILABLE', { sessionId: 'global' })
+    } catch (error) {
+      // Swallowing the error used to leave only a generic
+      // RECOVERY_BACKEND_UNAVAILABLE behind, so a permanently broken Session log
+      // looked exactly like a transient backend failure. Keep the cause.
+      if (!this.#disposed) {
+        this.#reportRecoveryFailure(error)
+        this.#degrade('RECOVERY_BACKEND_UNAVAILABLE', { sessionId: 'global' })
+      }
     }
   }
 
@@ -375,6 +384,14 @@ export class RecoveryLifecycle<Candidate = TurnIngressCandidate> {
 
   #isDegraded(): boolean {
     return this.#status === 'DEGRADED'
+  }
+
+  #reportRecoveryFailure(error: unknown): void {
+    try {
+      this.#reportFailure(error)
+    } catch {
+      // Observability must never break recovery.
+    }
   }
 
   #degrade(healthCode: string, coordinate: CandidateCoordinate, record = true): void {

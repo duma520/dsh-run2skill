@@ -53,7 +53,7 @@ describe('run2skill native settings surface', () => {
     const fiber = ctx.plugin({ inject: [...clientInject], apply: applyClient as never })
     try {
       await fiber
-      const tab = registrations.find(item => item.name === 'plugins.bundle.config' && item.key === 'dsh-run2skill')!
+      const tab = registrations.find(item => item.name === 'plugins.bundle.config' && item.key === '@duma520/dsh-run2skill')!
       const props = (tab.inject as () => { callLearningStatus: (endpoint: string, payload: unknown) => Promise<unknown> })()
       await expect(props.callLearningStatus('learning/status', { apiVersion: 1 })).resolves.toEqual({ ok: true, value: {} })
       expect(query).toHaveBeenCalledOnce()
@@ -700,7 +700,7 @@ describe('run2skill native settings surface', () => {
     await applyRun2skillClient(context as never)
 
     expect(registrations).toContainEqual(expect.objectContaining({
-      name: 'plugins.bundle.config', key: 'dsh-run2skill',
+      name: 'plugins.bundle.config', key: '@duma520/dsh-run2skill',
     }))
     expect(components[registrations.findIndex(item => item.name === 'plugins.bundle.config')]).toBe(Run2skillSettingsPage)
     expect(registrations.filter(item => item.name === 'plugins.bundle.config')).toHaveLength(1)

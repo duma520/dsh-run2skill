@@ -11,7 +11,7 @@ import { TYPERT } from '../src/adapters/dsh-remote/typert.js'
 
 describe('DSH 0.1.2 Remote contract', () => {
   it('publishes one strict descriptor source to both Host and Client', () => {
-    expect(RUN2SKILL_REMOTE).toMatchObject({ package: 'dsh-run2skill' })
+    expect(RUN2SKILL_REMOTE).toMatchObject({ package: '@duma520/dsh-run2skill' })
     expect(RUN2SKILL_REMOTE.descriptors).toBe(TYPERT.invocations)
     expect(RUN2SKILL_REMOTE.descriptors.map(descriptor => descriptor.method)).toEqual([
       'query',

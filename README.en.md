@@ -5,11 +5,21 @@
 <p align="center"><strong>Turn today's lessons into tomorrow's skills.</strong></p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/dsh-run2skill"><img src="https://img.shields.io/npm/v/dsh-run2skill?color=247C78&amp;label=npm" alt="npm version" /></a>
-  <a href="docs/compatibility.md"><img src="https://img.shields.io/badge/DSH-0.2.2--rc.3%20Mac%20%7C%20rc.1%20Web-153B3C" alt="Supports DSH 0.2.2-rc.3 Mac Desktop and 0.2.2-rc.1 Web" /></a>
-  <a href="https://github.com/qkycir-123/dsh-run2skill/actions/workflows/ci.yml"><img src="https://github.com/qkycir-123/dsh-run2skill/actions/workflows/ci.yml/badge.svg" alt="CI status" /></a>
+  <img src="https://img.shields.io/badge/version-1.2.2-247C78" alt="version 1.2.2" />
+  <img src="https://img.shields.io/badge/DSH-0.2.3--alpha.2%20%7C%200.2.2--rc.3%20%7C%200.2.2--rc.1-153B3C" alt="Supports DSH 0.2.3-alpha.2, 0.2.2-rc.3 and 0.2.2-rc.1" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-EAB45C" alt="MIT license" /></a>
 </p>
+
+> **This is the duma520 fork (`@duma520/dsh-run2skill` v1.2.2).**
+>
+> Upstream: [qkycir-123/dsh-run2skill](https://github.com/qkycir-123/dsh-run2skill) v1.0.0.
+>
+> The fork changes exactly two things: it **widens the `peerDependencies` allow-list to include DSH 0.2.3-alpha.2**, and it renames the package to `@duma520/dsh-run2skill` so it can replace the original on the same machine. Behaviour and features are identical to upstream.
+>
+> - Upstream 1.0.0 is rejected by the DSH 0.2.3-alpha.2 plugin gate ("incompatible … requires 0.2.2-rc.1 \|\| 0.2.2-rc.3").
+> - This fork declares `0.2.2-rc.1 \|\| 0.2.2-rc.3 \|\| 0.2.3-alpha.2` for the four `@deepseek-ai/*` peers.
+> - A **restart of the DSH desktop app is required**. See [软件升级迭代记录.md](软件升级迭代记录.md) for the full change log.
+> - Not published to npm; used locally via `link:`.
 
 <p align="center">
   <a href="#install">Install</a> · <a href="#see-the-complete-flow">Full flow</a> · <a href="docs/compatibility.md">Compatibility</a> · <a href="CHANGELOG.md">Changelog</a> · <a href="README.md">中文</a>
@@ -40,6 +50,40 @@ Run2Skill turns the corrections, constraints, and workflows you teach an Agent i
 </details>
 
 ## Install
+
+### On this machine (DSH 0.2.3-alpha.2 desktop) — read this section
+
+This fork is **not distributed via npm**. It is mounted from a local directory with `link:`. Every step below was verified on 2026-11-25.
+
+1. **Make sure the plugin directory exists**: `G:\DSH\dsh-plugins\dsh-run2skill`, containing a built `lib\` folder (`client.js`, `index.js`, `index.d.ts`, `typert.host.js`, `typert.host.d.ts`, `typert.remote-client.js`, `typert.remote-client.d.ts`, `contract-BbysfJw-.js`).
+2. **Register the dependency** in `C:\Users\duma520\.dsh\profiles\desktop\package.json`:
+   ```json
+   "@duma520/dsh-run2skill": "link:G:/DSH/dsh-plugins/dsh-run2skill"
+   ```
+3. **Add** `"@duma520/dsh-run2skill"` to the `dsh.profile.bundles` array. Without it the host never assembles the Host/Client halves.
+4. **Create the directory symlink** under `C:\Users\duma520\.dsh\profiles\desktop\node_modules\@duma520\`:
+   ```cmd
+   mklink /D dsh-run2skill G:\DSH\dsh-plugins\dsh-run2skill
+   ```
+   If permission is denied, use `python -c "import os; os.symlink(r'G:\DSH\dsh-plugins\dsh-run2skill','dsh-run2skill',target_is_directory=True)"`.
+5. **Edit `cordis.patch.yml`**: in the `- id: run2skill` block set `name` to `"@duma520/dsh-run2skill"` — **the quotes are mandatory**, because a bare scalar starting with `@` is invalid YAML.
+6. **Quit the DSH desktop app completely and restart it.** The bundle manifest and client modules are assembled only at boot; hot reload does not apply them.
+
+After restart, the **Plugins** page should list `dsh-run2skill` at version `1.2.2` with no red incompatibility banner.
+
+### Why the `dsh plugin` CLI cannot be used here
+
+`dsh plugin --profile desktop ...` fails with:
+
+```
+error: profile "desktop" is managed exclusively by the Electron application
+```
+
+The desktop profile is owned exclusively by the DSH Electron app. Configure it manually as above, or use the GUI plugin market's "install bundle" action.
+
+### Upstream install instructions (Web / Mac / older Windows)
+
+Kept for reference on other hosts. Note that `dsh-run2skill@1.0.0` is rejected by the DSH 0.2.3-alpha.2 gate.
 
 **Web (DSH 0.2.2-rc.1)**: install Node.js `>=24.9.0` and make sure `pnpm` and `dsh` are available. Install `1.0.0`:
 
@@ -82,11 +126,62 @@ Each draft includes its source conversation. Approve it, request changes, or dis
 
 Run2Skill manages drafts locally and sends selected, redacted conversation excerpts to the current model. See [Storage and upgrades](docs/storage-and-upgrades.md).
 
+## What 1.2.0 adds
+
+Four capabilities about diagnosing, rolling back, and telling versions apart. None of them changes the upstream workflow.
+
+### 1. A file log the plugin owns
+
+- Path: `~/.dsh/dsh-run2skill/logs/run2skill.log` (on Windows, `C:\Users\<you>\.dsh\dsh-run2skill\logs\run2skill.log`).
+- Format: one JSON object per line with `ts` / `level` / `name` / `message` / `args`. File mode `0600`.
+- Rotation: once a file exceeds **5 MB** it is renamed to `run2skill.log.1` (one previous file, no unbounded growth).
+- Redaction: every field is redacted before writing. `password=`, `authorization:` headers, bearer tokens and credentials embedded in URLs become `[REDACTED]`; structured fields (numbers, booleans, arrays) are kept as-is.
+- Safety valve: **a log write failure is never thrown** — logging must not break the agent loop.
+- What gets logged: plugin apply/ready/dispose, ingress health codes, stale-generation warnings, failed generation probes.
+
+### 2. Runtime generation self-check
+
+At module import the plugin fingerprints the code it is actually running (12-char SHA-1). Each settings-page read re-reads the same file from disk and compares:
+
+- Matching: nothing is shown.
+- Disk already replaced (you updated but did not restart): a red banner appears at the top of the settings page stating that the running plugin is older than what sits on disk and that DSH must be restarted.
+- Either side unreadable: **no warning** (a false alarm is worse than a missed one).
+
+> Why: DSH plugin UI changes do not appear on hot reload, so previously the only signal was "I changed it and nothing happened". Now it says so directly. Probes are throttled to once per 60 seconds.
+
+### 3. Skill usage (recall telemetry)
+
+A new collapsible "Skill usage" section lists, for the **last 30 days**, how often each Skill's body was read out and handed to the model:
+
+- Source: computed on read from the v2 domain's `experience_intents` recall candidates. **No derived index is persisted** — the same fact is not stored twice and cannot drift.
+- Counting: a candidate counts only when `bodyDigest` exists (the body really was read); retries inside one recall do not double-count.
+- Scope: `this project only` / `all projects` / `unknown origin`. Project-level records require a resolvable workspace, otherwise they are dropped — **numbers from different workspaces are never merged into one misleading total**.
+- Honest limit (also stated in the UI): **this only means the body was handed to the model, never that the model used it.**
+- Versus "Recent activity": that one is the **write side** (which Skills were created/updated), this one is the **read side** (which Skills were pulled out). They stay separate.
+
+### 4. Publication history snapshots
+
+- Every **merge update** of an existing Skill archives the replaced body to `skills/.run2skill-history/<skill-name>/<content-hash>.md`.
+- At most **3 historical versions** per Skill; older ones are pruned by mtime.
+- Named by content hash, so a crash retry copies the same bytes to the same name — idempotent by construction.
+- First-time creation keeps no history (there is nothing to replace).
+- A failed archive **never rolls back** an already-verified publication; the history copy is best-effort.
+- To restore, copy `history/<hash>.md` back over `SKILL.md` manually (no automatic rollback button, to avoid clobbering a version you want to keep).
+
 ## Update and uninstall
 
 Follow the installation instructions for your host version, then restart DSH.
 
-Uninstall:
+**Uninstall / roll back this fork** (manual, because the desktop profile cannot use the CLI):
+
+1. Remove `"@duma520/dsh-run2skill"` from `dependencies` and from `dsh.profile.bundles` in `C:\Users\duma520\.dsh\profiles\desktop\package.json`.
+2. Remove the `- id: run2skill` block from `cordis.patch.yml` (or comment it out).
+3. Delete the symlink `C:\Users\duma520\.dsh\profiles\desktop\node_modules\@duma520\dsh-run2skill`.
+4. Restart the DSH desktop app.
+
+**Roll back to the upstream plugin**: rename `node_modules\dsh-run2skill.disabled-by-duma520` back to `node_modules\dsh-run2skill`, then restore `"dsh-run2skill": "1.0.0"` in `dependencies`, `"dsh-run2skill"` in `bundles`, and `name: "dsh-run2skill"` in `cordis.patch.yml`. The pre-change files are backed up in `C:\Users\duma520\.dsh\profiles\desktop\.backup-run2skill\`.
+
+Upstream generic uninstall command (other hosts):
 
 ```bash
 dsh plugin --profile desktop remove dsh-run2skill
@@ -94,10 +189,23 @@ dsh plugin --profile desktop remove dsh-run2skill
 
 For Web, replace `desktop` with `web`. Saved Skills and plugin data remain after uninstalling. To clear caches, use the plugin’s cleanup action before uninstalling.
 
+## Version history
+
+| Version | Date | Change |
+| --- | --- | --- |
+| 1.2.1 | 2026-11-25 | Fix: one truncated Session log made recovery retry forever; also log health codes and recovery failure causes, and cache the historical Session hydration |
+| 1.2.2 | 2026-11-25 | Fix: the event allow-list was missing 24 DSH 0.2.3 types, so recovery stayed DEGRADED; unprojectable Sessions are now skipped instead of aborting the batch |
+| 1.2.0 | 2026-11-25 | Added four capabilities: own file log, runtime generation self-check, skill recall telemetry, publication history snapshots |
+| 1.1.0 | 2026-11-25 | Forked as `@duma520/dsh-run2skill`; widened peer allow-list for DSH 0.2.3-alpha.2 |
+| 1.0.0 | 2026-11-14 | First stable upstream release |
+
+See [软件升级迭代记录.md](软件升级迭代记录.md) for the full change log, verification and rollback steps.
+
 ## Help and contribute
 
-- [Report an issue](https://github.com/qkycir-123/dsh-run2skill/issues)
-- [Compatibility](docs/compatibility.md) · [Changelog](CHANGELOG.md)
+- This fork: [duma520/dsh-run2skill/issues](https://github.com/duma520/dsh-run2skill/issues)
+- Upstream: [qkycir-123/dsh-run2skill/issues](https://github.com/qkycir-123/dsh-run2skill/issues)
+- [Compatibility](docs/compatibility.md) · [Changelog](CHANGELOG.md) · [Fork change log](软件升级迭代记录.md)
 - [Contributing](CONTRIBUTING.md) · [Maintainer probes](probes/README.md)
 - [Product requirements](docs/product/prd.md) · [Architecture and design](docs/architecture/baseline.md)
 

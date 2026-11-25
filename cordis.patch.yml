@@ -1,3 +1,8 @@
+# @duma520/dsh-run2skill 的 bundle patch（fork 自 qkycir-123/dsh-run2skill v1.0.0）。
+#
+# 一行 insert 即挂载 Host 半身（学习/提案/发布服务）。
+# 浏览器半身（插件详情页 Native UI）由 package.json 的 dsh.client 字段声明，不走本文件。
+# name 必须等于 package.json 的 name，否则浏览器模块身份对不上。
 - insert:
     - id: run2skill
-      name: dsh-run2skill
+      name: '@duma520/dsh-run2skill'

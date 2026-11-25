@@ -215,4 +215,38 @@ describe('Attention projection RPC', () => {
     })
     expect(JSON.stringify(result)).not.toContain('session-a')
   })
+  it('omits the generation block when the host did not supply one', async () => {
+    const host = createAttentionRpcHandler(() => undefined, new RuntimeNotices())
+    const result = await host('attention', {
+      apiVersion: 1,
+      currentScope: { kind: 'USER_ONLY', generation: 1 },
+    }, new AbortController().signal)
+
+    expect(result).toMatchObject({ ok: true })
+    expect(result).not.toHaveProperty('value.generation')
+    expect(JSON.stringify(result)).not.toContain('diskGeneration')
+  })
+
+  it('projects the generation block through the attention response', async () => {
+    const generation = {
+      version: '1.1.0',
+      codeGeneration: 'aaaaaaaaaaaa',
+      diskGeneration: 'bbbbbbbbbbbb',
+      restartRequired: true,
+      message: '运行中的插件是旧版本（aaaaaaaaaaaa），磁盘上已是新版本（bbbbbbbbbbbb）。请重启 DSH 桌面应用后生效。',
+    }
+    const host = createAttentionRpcHandler(
+      () => undefined,
+      new RuntimeNotices(),
+      async () => undefined,
+      undefined,
+      () => generation,
+    )
+    const result = await host('attention', {
+      apiVersion: 1,
+      currentScope: { kind: 'USER_ONLY', generation: 1 },
+    }, new AbortController().signal)
+
+    expect(result).toMatchObject({ ok: true, value: { generation } })
+  })
 })

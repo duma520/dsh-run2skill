@@ -75,6 +75,14 @@ export interface AttentionProjection {
     readonly noticeKey: string
     readonly message?: string
   }[]
+  /** Present when the host could compare the loaded build against the one on disk. */
+  readonly generation?: {
+    readonly version: string
+    readonly codeGeneration: string
+    readonly diskGeneration: string
+    readonly restartRequired: boolean
+    readonly message: string
+  }
 }
 
 export type AttentionCall = (
@@ -89,6 +97,17 @@ export type AttentionCall = (
 ) => Promise<unknown>
 
 export type RecentSkillActivityCall = (
+  payload: {
+    readonly apiVersion: 1
+    readonly currentScope:
+      | { readonly kind: 'USER_ONLY'; readonly generation: number }
+      | { readonly kind: 'WORKSPACE'; readonly generation: number; readonly workspaceId: string }
+    readonly expectedVisibilityRevision?: string
+  },
+  signal: AbortSignal,
+) => Promise<unknown>
+
+export type RecallTelemetryCall = (
   payload: {
     readonly apiVersion: 1
     readonly currentScope:
@@ -404,6 +423,128 @@ export function RecentSkillActivitySection(props: {
         createElement('time', { dateTime: item.occurredAt, className: css.muted }, formatActivityTime(item.occurredAt)),
       )),
     ),
+  )
+}
+
+const recallTelemetryResultSchema = z.object({
+  ok: z.literal(true),
+  value: z.object({
+    apiVersion: z.literal(1),
+    visibilityRevision: z.string().regex(/^visibility_[a-f0-9]{64}$/),
+    windowDays: z.literal(30),
+    items: z.array(z.object({
+      skillName: z.string().min(1).max(128),
+      scope: z.enum(['PROJECT', 'USER', 'UNKNOWN']),
+      recallCount: z.number().int().positive(),
+      lastRecalledAt: z.string().datetime({ offset: true }),
+    }).strict()).max(64),
+  }).strict(),
+}).strict()
+
+type RecallTelemetryItem = z.infer<typeof recallTelemetryResultSchema>['value']['items'][number]
+
+const RECALL_TELEMETRY_POLL_MS = 10_000
+
+/**
+ * The recall side can report UNKNOWN when a Skill's provider is not one of the
+ * well-known ones, so it cannot reuse the proposal-inbox helper that only
+ * knows PROJECT and USER.
+ */
+function describeRecallScope(scope: RecallTelemetryItem['scope']): string {
+  if (scope === 'PROJECT') return '仅当前项目可用'
+  if (scope === 'USER') return '所有项目可用'
+  return '来源未知'
+}
+
+/**
+ * "Which Skills were handed to the model" — a different question from the
+ * activity list above, which answers "what did Run2Skill publish". Kept as its
+ * own section so the two numbers never read as one.
+ */
+export function RecallTelemetrySection(props: {
+  readonly workspaceId?: string
+  readonly call: RecallTelemetryCall
+  readonly active: boolean
+  readonly scopeGeneration: number
+  readonly hostDataEpoch?: number
+  readonly pollMs?: number
+}): ReactElement {
+  const scopeIdentity = JSON.stringify([
+    props.workspaceId ?? null,
+    props.scopeGeneration,
+    props.hostDataEpoch ?? 0,
+  ])
+  const [state, setState] = useState<{
+    readonly phase: 'IDLE' | 'LOADING' | 'READY' | 'ERROR'
+    readonly items: readonly RecallTelemetryItem[]
+    readonly scopeIdentity?: string
+  }>({ phase: 'IDLE', items: [] })
+  const visibleState = state.scopeIdentity === scopeIdentity ? state : { phase: 'IDLE' as const, items: [] }
+  useEffect(() => {
+    if (!props.active) return
+    const abort = new AbortController()
+    setState({ phase: 'LOADING', items: [], scopeIdentity })
+    void (async () => {
+      let revision: string | undefined
+      while (!abort.signal.aborted) {
+        const result = await props.call({
+          apiVersion: 1,
+          currentScope: currentScope(props.workspaceId, props.scopeGeneration),
+          ...(revision === undefined ? {} : { expectedVisibilityRevision: revision }),
+        }, abort.signal)
+        if (abort.signal.aborted) return
+        const parsed = recallTelemetryResultSchema.safeParse(result)
+        if (
+          recentSkillActivityVisibilityStaleSchema.safeParse(result).success
+          || !parsed.success
+          || (revision !== undefined && parsed.data.value.visibilityRevision !== revision)
+        ) {
+          revision = undefined
+          setState({ phase: 'LOADING', items: [], scopeIdentity })
+          continue
+        }
+        revision = parsed.data.value.visibilityRevision
+        setState({ phase: 'READY', items: parsed.data.value.items, scopeIdentity })
+        await waitForActivityVisibilityPoll(abort.signal, props.pollMs ?? RECALL_TELEMETRY_POLL_MS)
+      }
+    })().catch(() => {
+      if (!abort.signal.aborted) setState({ phase: 'ERROR', items: [], scopeIdentity })
+    })
+    return () => { abort.abort() }
+  }, [
+    props.active,
+    props.call,
+    props.hostDataEpoch,
+    props.pollMs,
+    props.scopeGeneration,
+    props.workspaceId,
+    scopeIdentity,
+  ])
+  return createElement('div', { className: css.sectionBody },
+    visibleState.phase === 'LOADING' ? createElement('p', { role: 'status' }, '正在统计技能使用情况…') : null,
+    visibleState.phase === 'ERROR' ? createElement('p', { role: 'alert' }, '技能使用情况暂不可用。') : null,
+    visibleState.phase === 'READY' && visibleState.items.length === 0
+      ? createElement('p', null, '最近 30 天没有 Skill 出现在召回候选里。')
+      : null,
+    visibleState.items.length === 0 ? null : createElement('ul', { className: css.activityList },
+      ...visibleState.items.map(item => createElement('li', {
+        className: css.activityItem,
+        key: `${item.skillName}\u0000${item.scope}`,
+      },
+        createElement('div', { className: css.activitySummary },
+          createElement('strong', null, item.skillName),
+          createElement(Pill, null, `召回 ${item.recallCount} 次`),
+          createElement(Pill, null, describeRecallScope(item.scope)),
+        ),
+        createElement('time', {
+          dateTime: item.lastRecalledAt,
+          className: css.muted,
+        }, `最近一次 ${formatActivityTime(item.lastRecalledAt)}`),
+      )),
+    ),
+    visibleState.phase === 'READY' && visibleState.items.length === 0 ? null : createElement('p', {
+      className: css.muted,
+    }, '只表示这些 Skill 的正文被读出来交给了模型，不代表模型真的用上了它们。'),
   )
 }
 
@@ -1133,11 +1274,13 @@ export function AttentionSettingsSummary(props: {
     }
   }, [props.active, refresh])
   const value = state.value
+  const staleGeneration = value?.generation?.restartRequired === true ? value.generation : undefined
   if (
     value === undefined
     || (
       value.actions.length === 0
       && value.runtimeWarnings.length === 0
+      && staleGeneration === undefined
       && value.projectCompleteness !== 'UNKNOWN'
       && value.runtimeCompleteness !== 'UNKNOWN'
     )
@@ -1155,6 +1298,13 @@ export function AttentionSettingsSummary(props: {
         key: warning.noticeKey,
         role: 'alert',
       }, warning.message ?? '存在尚未持久化的学习信号。')),
+      staleGeneration === undefined
+        ? null
+        : createElement('span', {
+          key: `generation-${staleGeneration.diskGeneration}`,
+          role: 'alert',
+          className: css.generationBanner,
+        }, staleGeneration.message),
     ),
   )
 }
@@ -1167,6 +1317,7 @@ export function Run2skillSettingsPage(props: {
   readonly callAttention: AttentionCall
   readonly callReview: ProposalReviewCall
   readonly callActivity: RecentSkillActivityCall
+  readonly callRecallTelemetry?: RecallTelemetryCall
   readonly callLearningStatus?: LearningStatusCall
   readonly useSessions?: <T>(selector: (state: SessionSelectionSnapshot) => T) => T
   readonly useWorkspaces?: <T>(selector: (state: {
@@ -1308,6 +1459,20 @@ export function Run2skillSettingsPage(props: {
         scopeGeneration,
         hostDataEpoch: purgeState.hostDataEpoch,
       }), createElement(Pill, null, '最近 7 天')),
+    props.callRecallTelemetry === undefined ? null : disclosure('recall', '技能使用情况', createElement(IconSparkleMedium),
+      createElement(RecallTelemetrySection, {
+        key: JSON.stringify([
+          workspaceId ?? null,
+          scopeGeneration,
+          purgeState.hostDataEpoch,
+          hostTab.visible && open.has('recall') && !purgeDataChanging,
+        ]),
+        ...(workspaceId === undefined ? {} : { workspaceId }),
+        call: props.callRecallTelemetry,
+        active: hostTab.visible && open.has('recall') && !purgeDataChanging,
+        scopeGeneration,
+        hostDataEpoch: purgeState.hostDataEpoch,
+      }), createElement(Pill, null, '最近 30 天')),
     disclosure('retrieval', 'Skill 召回', createElement(IconSettingsOutlineMedium),
       createElement('div', { className: css.sectionBody }, createElement(RetrievalSettingsSection, { controller: props.controller }))),
     disclosure('purge', '缓存清理', createElement(IconTrashOutlineMedium),
@@ -1373,6 +1538,9 @@ export async function applyRun2skillClient(context: Run2skillClientContext): Pro
   const callActivity: RecentSkillActivityCall = async (payload, signal) => await mounted.call(
     'recent-activity/list', payload, signal,
   )
+  const callRecallTelemetry: RecallTelemetryCall = async (payload, signal) => await mounted.call(
+    'recall-telemetry/list', payload, signal,
+  )
   const callLearningStatus: LearningStatusCall = mounted.call
   const callPurge: PurgeCall = mounted.call
   const purgeController = new PurgeSettingsController(callPurge, () => (
@@ -1389,7 +1557,7 @@ export async function applyRun2skillClient(context: Run2skillClientContext): Pro
 
   context.slots.inject('plugins.bundle.config', () => context.slots.register({
     name: 'plugins.bundle.config',
-    key: 'dsh-run2skill',
+    key: '@duma520/dsh-run2skill',
     inject: () => ({
       controller,
       purgeController,
@@ -1398,6 +1566,7 @@ export async function applyRun2skillClient(context: Run2skillClientContext): Pro
       callAttention,
       callReview,
       callActivity,
+      callRecallTelemetry,
       callLearningStatus,
     }),
   }, Run2skillSettingsPage))

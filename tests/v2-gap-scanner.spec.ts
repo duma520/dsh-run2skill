@@ -700,6 +700,148 @@ describe('DshV2GapScanner', () => {
       status: 'COMPLETE', processedSessions: 0, processedEvents: 0,
     })
   })
+  it('keeps scanning the remaining Sessions when one historical log has a permanent hole', async () => {
+    const orderedHeaders = [header('session-a'), header('session-b')]
+      .sort((left, right) => lifecycleKeyFor(left).localeCompare(lifecycleKeyFor(right)))
+    const broken = orderedHeaders[0]!
+    const healthy = orderedHeaders[1]!
+    const entries = [
+      { header: broken, revision: 'rev-1', events: turn(0, 0) as DshSessionEvent[] },
+      { header: healthy, revision: 'rev-1', events: turn(0, 0) as DshSessionEvent[] },
+    ]
+    const persistence: SessionPersistencePort = {
+      listSnapshots: async () => entries.map(({ header: value, revision }) => ({ header: value, revision })),
+      readFrom: async (sessionId, fromSeq) => {
+        const entry = entries.find(item => item.header.id === sessionId)!
+        return { meta: entry.header, events: entry.events.filter(event => event.seq >= fromSeq) }
+      },
+    }
+    const domain = createMemoryRun2skillV2Domain()
+    const reader = new DshSessionGapReader(persistence)
+    await activateFreshRun2skillV2(domain, reader, {
+      now: () => new Date(CREATED_AT + 100).toISOString(),
+    })
+
+    // The broken Session gains a Turn whose second event never reached disk:
+    // seq 7 is gone, so the durable log can never satisfy assertContiguous.
+    const brokenEntry = entries[0]!
+    const brokenTail = turn(5, 1).filter(event => event.seq !== 6)
+    brokenEntry.events.push(...brokenTail)
+
+    // The healthy Session gains a well-formed Turn.
+    const healthyEntry = entries[1]!
+    healthyEntry.events.push(...turn(5, 1))
+    healthyEntry.revision = 'rev-2'
+
+    const observeTurn = vi.fn(async (_header: DshSessionHeader, _events: readonly DshSessionEvent[], turnEndSeq: number) => {
+      const key = lifecycleKeyFor(_header)
+      const global = domain.global.get()
+      await domain.global.set({
+        ...global,
+        sessions: {
+          ...global.sessions,
+          [key]: { ...global.sessions[key]!, observedThroughTurnEndSeq: turnEndSeq, updatedAt: new Date(CREATED_AT + 200).toISOString() },
+        },
+      })
+      return { status: 'OBSERVED' as const }
+    })
+    const notices = new RuntimeNotices({ now: () => CREATED_AT + 200 })
+    const scanner = new DshV2GapScanner(reader, domain, { observeTurn }, {
+      resolve: async () => ({ status: 'UNAVAILABLE' }),
+    }, notices, {
+      now: () => CREATED_AT + 200,
+      heapUsed: () => 100,
+    })
+
+    await expect(scanner.scanBatch()).resolves.toMatchObject({ status: 'COMPLETE' })
+    expect(observeTurn).toHaveBeenCalledTimes(1)
+    expect(observeTurn.mock.calls[0]?.[0].id).toBe(healthy.id)
+    expect(notices.list()).toContainEqual(expect.objectContaining({
+      healthCode: 'SESSION_LOG_UNAVAILABLE',
+      sessionId: broken.id,
+    }))
+
+    // The damaged Session is not re-read on the next batch, so it cannot stall
+    // recovery a second time.
+    observeTurn.mockClear()
+    await expect(scanner.scanBatch()).resolves.toMatchObject({ status: 'COMPLETE' })
+    expect(observeTurn).not.toHaveBeenCalled()
+  })
+
+  it('keeps scanning the remaining Sessions when one Session cannot be projected', async () => {
+    const orderedHeaders = [header('session-a'), header('session-b')]
+      .sort((left, right) => lifecycleKeyFor(left).localeCompare(lifecycleKeyFor(right)))
+    const unprojectable = orderedHeaders[0]!
+    const healthy = orderedHeaders[1]!
+    const entries = [
+      { header: unprojectable, revision: 'rev-1', events: turn(0, 0) as DshSessionEvent[] },
+      { header: healthy, revision: 'rev-1', events: turn(0, 0) as DshSessionEvent[] },
+    ]
+    const persistence: SessionPersistencePort = {
+      listSnapshots: async () => entries.map(({ header: value, revision }) => ({ header: value, revision })),
+      readFrom: async (sessionId, fromSeq) => {
+        const entry = entries.find(item => item.header.id === sessionId)!
+        return { meta: entry.header, events: entry.events.filter(event => event.seq >= fromSeq) }
+      },
+    }
+    const domain = createMemoryRun2skillV2Domain()
+    const reader = new DshSessionGapReader(persistence)
+    await activateFreshRun2skillV2(domain, reader, {
+      now: () => new Date(CREATED_AT + 100).toISOString(),
+    })
+
+    entries[0]!.events.push(...turn(5, 1))
+    entries[0]!.revision = 'rev-2'
+    entries[1]!.events.push(...turn(5, 1))
+    entries[1]!.revision = 'rev-2'
+
+    // The first Session projects to UNAVAILABLE, exactly like a Turn carrying an
+    // event this build has no evidence rule for.
+    const observeTurn = vi.fn(async (
+      observed: DshSessionHeader,
+      _events: readonly DshSessionEvent[],
+      turnEndSeq: number,
+    ) => {
+      if (observed.id === unprojectable.id) {
+        return { status: 'UNAVAILABLE' as const, healthCode: 'OBSERVATION_PROJECTION_UNAVAILABLE' as const }
+      }
+      const key = lifecycleKeyFor(observed)
+      const global = domain.global.get()
+      await domain.global.set({
+        ...global,
+        sessions: {
+          ...global.sessions,
+          [key]: {
+            ...global.sessions[key]!,
+            observedThroughTurnEndSeq: turnEndSeq,
+            updatedAt: new Date(CREATED_AT + 200).toISOString(),
+          },
+        },
+      })
+      return { status: 'OBSERVED' as const }
+    })
+    const notices = new RuntimeNotices({ now: () => CREATED_AT + 200 })
+    const scanner = new DshV2GapScanner(reader, domain, { observeTurn }, {
+      resolve: async () => ({ status: 'UNAVAILABLE' }),
+    }, notices, {
+      now: () => CREATED_AT + 200,
+      heapUsed: () => 100,
+    })
+
+    await expect(scanner.scanBatch()).resolves.toMatchObject({ status: 'COMPLETE' })
+    expect(notices.list()).toContainEqual(expect.objectContaining({
+      healthCode: 'OBSERVATION_PROJECTION_UNAVAILABLE',
+      sessionId: unprojectable.id,
+    }))
+    expect(observeTurn.mock.calls.map(call => call[0].id)).toEqual([unprojectable.id, healthy.id])
+
+    // The Session is remembered as unprojectable, so the next batch neither reads
+    // nor reprojects it, and the healthy Session keeps its own progress.
+    observeTurn.mockClear()
+    await expect(scanner.scanBatch()).resolves.toMatchObject({ status: 'COMPLETE' })
+    expect(observeTurn.mock.calls.map(call => call[0].id)).not.toContain(unprojectable.id)
+  })
+
 })
 
 function lifecycleKeyFor(value: DshSessionHeader): string {

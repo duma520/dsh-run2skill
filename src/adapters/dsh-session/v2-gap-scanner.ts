@@ -266,6 +266,17 @@ export class DshV2GapScanner {
   readonly #partial = new Map<string, PartialScan>()
   readonly #settledTails = new Map<string, SettledTailScan>()
   readonly #routeCache = new Map<string, SessionRouteCache>()
+  // A Session whose durable log has a permanent hole can never satisfy
+  // assertContiguous. Retrying it every batch (and every recovery attempt)
+  // used to stall recovery for *all* Sessions, so remember it for this process
+  // and keep scanning the rest. A repaired log is picked up after a restart.
+  readonly #unreadable = new Set<string>()
+  // A Session whose turns cannot be projected at all (an event this build has
+  // no rule for, a broken turn boundary) behaves like an unreadable log: every
+  // retry fails the same way, and letting it abort the batch used to stall
+  // recovery for every other Session. Remember it for this process, record the
+  // health code once so it reaches the UI and the plugin log, and keep going.
+  readonly #unprojectable = new Set<string>()
   readonly #now
   readonly #heapUsed
   readonly #activationFenceTime
@@ -331,6 +342,8 @@ export class DshV2GapScanner {
     for (const key of this.#partial.keys()) if (!rootKeys.has(key)) this.#partial.delete(key)
     for (const key of this.#settledTails.keys()) if (!rootKeys.has(key)) this.#settledTails.delete(key)
     for (const key of this.#routeCache.keys()) if (!rootKeys.has(key)) this.#routeCache.delete(key)
+    for (const key of this.#unreadable.keys()) if (!rootKeys.has(key)) this.#unreadable.delete(key)
+    for (const key of this.#unprojectable.keys()) if (!rootKeys.has(key)) this.#unprojectable.delete(key)
 
     let processedSessions = 0
     let processedEvents = 0
@@ -361,6 +374,14 @@ export class DshV2GapScanner {
         visitedRoots += 1
         continue
       }
+      if (this.#unreadable.has(root.lifecycleKey)) {
+        visitedRoots += 1
+        continue
+      }
+      if (this.#unprojectable.has(root.lifecycleKey)) {
+        visitedRoots += 1
+        continue
+      }
       const readStartedAt = this.#now()
       const read = await this.reader.readFrom(root.header.id, readFromSeq, signal)
       maxReadFromLatencyMs = Math.max(maxReadFromLatencyMs, this.#now() - readStartedAt)
@@ -375,11 +396,15 @@ export class DshV2GapScanner {
       try {
         assertContiguous(read.events, readFromSeq)
       } catch {
+        // One damaged historical Session must not lock recovery for every other
+        // Session. Record the real health code once (so it reaches the UI and the
+        // plugin log), remember it for this process, then keep going.
+        this.#unreadable.add(root.lifecycleKey)
         this.notices.record({ healthCode: 'SESSION_LOG_UNAVAILABLE', sessionId: root.header.id })
-        return this.#result(
-          'UNAVAILABLE', processedSessions, processedEvents,
-          maxReadFromLatencyMs, peakHeapBytes, 'SESSION_LOG_UNAVAILABLE',
-        )
+        this.#partial.delete(root.lifecycleKey)
+        this.#settledTails.delete(root.lifecycleKey)
+        visitedRoots += 1
+        continue
       }
       if (mustValidatePrefix) {
         const actual = deriveDshSessionLogPrefixDigest(read.events, cursor.observedThroughTurnEndSeq)
@@ -409,6 +434,7 @@ export class DshV2GapScanner {
       const inspectedThrough = Math.min(scanEvents.length, startOffset + remainingBudget)
       processedEvents += inspectedThrough - startOffset
       let turnSliceStart = 0
+      let skipRoot = false
       let recoveredRouteEvents: readonly DshSessionEvent[] | undefined
       const cachedRoute = this.#routeCache.get(root.lifecycleKey)
       const cacheMatchesCursor = cursor !== undefined
@@ -447,11 +473,10 @@ export class DshV2GapScanner {
               try {
                 assertContiguous(routeRead.events, 0)
               } catch {
+                this.#unreadable.add(root.lifecycleKey)
                 this.notices.record({ healthCode: 'SESSION_LOG_UNAVAILABLE', sessionId: root.header.id })
-                return this.#result(
-                  'UNAVAILABLE', processedSessions, processedEvents,
-                  maxReadFromLatencyMs, peakHeapBytes, 'SESSION_LOG_UNAVAILABLE',
-                )
+                skipRoot = true
+                break
               }
               const actualPrefix = cursor === undefined
                 ? undefined
@@ -487,20 +512,29 @@ export class DshV2GapScanner {
           inheritedRoute,
         )
         if (observed.status !== 'OBSERVED') {
+          // One Session this build cannot project must not abort the whole
+          // batch; that is what kept recovery DEGRADED forever. Fall back to
+          // leaving this Session unscanned and keep the rest moving.
           const healthCode = observed.status === 'UNAVAILABLE'
             ? observed.healthCode
             : 'ROOT_IDENTITY_UNAVAILABLE'
           this.notices.record({ healthCode, sessionId: root.header.id, turnEndSeq: event.seq })
-          return this.#result(
-            'UNAVAILABLE', processedSessions, processedEvents,
-            maxReadFromLatencyMs, peakHeapBytes, healthCode,
-          )
+          this.#unprojectable.add(root.lifecycleKey)
+          skipRoot = true
+          break
         }
         this.#routeCache.set(root.lifecycleKey, {
           throughSeq: event.seq,
           ...(inheritedRoute === undefined ? {} : { route: inheritedRoute }),
         })
         turnSliceStart = index + 1
+      }
+
+      if (skipRoot) {
+        this.#partial.delete(root.lifecycleKey)
+        this.#settledTails.delete(root.lifecycleKey)
+        visitedRoots += 1
+        continue
       }
 
       if (inspectedThrough < scanEvents.length) {

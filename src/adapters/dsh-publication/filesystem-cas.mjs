@@ -1,4 +1,5 @@
 import {
+  copyFile,
   lstat,
   link,
   mkdir,
@@ -15,6 +16,9 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'nod
 
 // Production filesystem primitive; the cross-platform probe imports this file directly.
 const JOURNAL_DIR = '.run2skill-publication'
+const HISTORY_DIR = '.run2skill-history'
+const MAX_HISTORY_VERSIONS = 3
+const HISTORY_FILE_PATTERN = /^[a-f0-9]{64}\.md$/
 const MAX_JOURNAL_RECORDS = 64
 const NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const TX_PATTERN = /^[a-z0-9-]{1,80}$/
@@ -1220,6 +1224,48 @@ export async function withdrawWrittenCreate({ root, txid }) {
   return conflict(record, 'layout_alias_appeared')
 }
 
+/**
+ * Keep the bytes a MERGE is about to replace, so a user who does not like the
+ * merged result has something to go back to.
+ *
+ * Named by content hash rather than by transaction, which makes the call
+ * idempotent: a crash between the copy and the backup removal simply copies the
+ * same bytes to the same name on retry.
+ *
+ * Best effort by design. The new bytes are already installed and verified at
+ * this point; failing the whole publication because a history copy could not be
+ * written would trade a complete success for an unrelated convenience.
+ */
+async function archiveHistoryVersion(record) {
+  try {
+    const historyRoot = join(dirname(record.targetDir), HISTORY_DIR)
+    const skillDir = join(historyRoot, record.name)
+    await mkdir(skillDir, { recursive: true })
+    const destination = join(skillDir, `${record.expectedHash}.md`)
+    if (await statOrNull(destination) === null) {
+      await copyFile(record.backup, destination)
+    }
+    const entries = (await readdir(skillDir)).filter(entry => HISTORY_FILE_PATTERN.test(entry))
+    if (entries.length <= MAX_HISTORY_VERSIONS) return
+    const facts = []
+    for (const entry of entries) {
+      const stat = await statOrNull(join(skillDir, entry))
+      if (stat !== null) facts.push({ entry, mtimeMs: stat.mtimeMs })
+    }
+    facts.sort((left, right) => left.mtimeMs - right.mtimeMs || left.entry.localeCompare(right.entry))
+    const stale = facts.slice(0, Math.max(0, facts.length - MAX_HISTORY_VERSIONS))
+    for (const item of stale) {
+      try {
+        await unlink(join(skillDir, item.entry))
+      } catch {
+        // A stale copy that will not delete is not worth failing a publish over.
+      }
+    }
+  } catch {
+    // History is recoverable convenience; publishing correctness never depends on it.
+  }
+}
+
 export async function finalizeTransaction({ root, txid, confirmedExactReadback, crashAt, hooks }) {
   if (confirmedExactReadback !== true) {
     throw new PublicationConflict('readback_confirmation_required', 'Exact Registry readback is not confirmed')
@@ -1262,6 +1308,7 @@ export async function finalizeTransaction({ root, txid, confirmedExactReadback, 
       'claim_changed',
     )
   } else {
+    await archiveHistoryVersion(record)
     await unlinkOwnedFileIfPresent(
       record.backup,
       record.backupIdentityDigest,
@@ -1278,7 +1325,10 @@ export async function finalizeTransaction({ root, txid, confirmedExactReadback, 
 }
 
 export const probeInternals = {
+  HISTORY_DIR,
+  MAX_HISTORY_VERSIONS,
   JOURNAL_DIR,
   MAX_JOURNAL_RECORDS,
+  archiveHistoryVersion,
   targetPaths,
 }

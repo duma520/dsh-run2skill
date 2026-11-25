@@ -10,6 +10,7 @@ import {
   CurrentScopeV1Schema,
   type CurrentWorkspaceResolver,
 } from './current-scope-authorizer.js'
+import { describeGeneration, type GenerationIdentity } from '../dsh-logging/plugin-generation.js'
 
 export const ATTENTION_ENDPOINT = 'attention'
 
@@ -24,7 +25,7 @@ function noticeKey(parts: readonly string[]): string {
   return `notice_${createHash('sha256').update(parts.join('\u0000'), 'utf8').digest('hex')}`
 }
 
-export function projectRuntimeAttention(notices: RuntimeNotices, sessionId?: string): {
+export function projectRuntimeAttention(notices: RuntimeNotices, sessionId?: string, generation?: RuntimeGenerationBlock): {
   readonly runtimeCompleteness: 'KNOWN' | 'UNKNOWN'
   readonly runtimeWarnings: readonly {
     readonly noticeKey: string
@@ -34,6 +35,7 @@ export function projectRuntimeAttention(notices: RuntimeNotices, sessionId?: str
     readonly count: number
     readonly message: string
   }[]
+  readonly generation?: RuntimeGenerationBlock
 } {
   return {
     runtimeCompleteness: notices.unsavedCompletenessKnown() ? 'KNOWN' : 'UNKNOWN',
@@ -60,6 +62,35 @@ export function projectRuntimeAttention(notices: RuntimeNotices, sessionId?: str
           : '学习信号尚未持久化，请保持 DSH 运行并稍后重试。',
       }]
     }),
+    ...(generation === undefined ? {} : { generation }),
+  }
+}
+
+/**
+ * Runtime generation block returned alongside the attention projection.
+ *
+ * Kept separate from `runtimeWarnings` on purpose: that array is typed to the
+ * UNSAVED_SIGNAL shape and means "durable state not yet flushed", whereas this
+ * block means "the loaded code is older than the code on disk". Mixing them
+ * would make either meaning ambiguous to the client.
+ */
+export interface RuntimeGenerationBlock {
+  readonly version: string
+  readonly codeGeneration: string
+  readonly diskGeneration: string
+  readonly restartRequired: boolean
+  readonly message: string
+}
+
+export function projectRuntimeGeneration(
+  identity: GenerationIdentity,
+): RuntimeGenerationBlock {
+  return {
+    version: identity.version,
+    codeGeneration: identity.codeGeneration,
+    diskGeneration: identity.diskGeneration,
+    restartRequired: identity.restartRequired,
+    message: describeGeneration(identity),
   }
 }
 
@@ -72,6 +103,7 @@ export function createAttentionRpcHandler(
   notices: RuntimeNotices,
   resolveWorkspace: CurrentWorkspaceResolver = async () => undefined,
   fallback?: ObserveSummaryRpcHandler,
+  getGeneration?: () => RuntimeGenerationBlock | undefined,
 ): ObserveSummaryRpcHandler {
   const visibilities = new WeakMap<Run2skillDomain, PurgeVisibility>()
   const authorizer = new CurrentScopeAuthorizer(resolveWorkspace)
@@ -102,7 +134,7 @@ export function createAttentionRpcHandler(
         throw caught
       }
     }
-    const runtime = projectRuntimeAttention(notices, parsed.data.sessionId)
+    const runtime = projectRuntimeAttention(notices, parsed.data.sessionId, getGeneration?.())
     return {
       ok: true,
       value: {

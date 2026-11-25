@@ -97,8 +97,13 @@ export function finalizeTransaction(input: {
 }): Promise<PublicationResult>
 
 export const probeInternals: {
+  readonly HISTORY_DIR: string
+  readonly MAX_HISTORY_VERSIONS: number
   readonly JOURNAL_DIR: string
   readonly MAX_JOURNAL_RECORDS: number
+  readonly archiveHistoryVersion: (
+    record: Readonly<Record<string, unknown>>,
+  ) => Promise<void>
   readonly targetPaths: (
     root: string,
     name: string,

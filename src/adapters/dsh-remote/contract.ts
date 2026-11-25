@@ -76,7 +76,7 @@ function descriptor(
   requestSchema: typeof queryRequest | typeof commandRequest,
 ): InvocationDescriptor {
   const value: InvocationDescriptor = {
-    id: `dsh-run2skill#run2skill/${method}`,
+    id: `@duma520/dsh-run2skill#run2skill/${method}`,
     service: 'run2skillRemote',
     namespace: 'run2skill',
     method,
@@ -107,7 +107,7 @@ export const RUN2SKILL_REMOTE_DESCRIPTORS = Object.freeze([
 ])
 
 export const RUN2SKILL_REMOTE: TypertRemoteContribution = Object.freeze({
-  package: 'dsh-run2skill',
+  package: '@duma520/dsh-run2skill',
   descriptors: RUN2SKILL_REMOTE_DESCRIPTORS,
 })
 

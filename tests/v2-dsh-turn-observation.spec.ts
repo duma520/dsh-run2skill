@@ -625,4 +625,60 @@ describe('DSH TurnObservationV2 projection', () => {
     )
     expect(result).toEqual({ status: 'CHILD' })
   })
+
+  // DSH 0.2.3 introduced a batch of event types this plugin has no evidence rule
+  // for. They are audited as presentation / host bookkeeping / transport detail,
+  // so a turn containing them must still project, and their payload must never
+  // leak into the observation.
+  it.each([
+    'subagent/model-selection-policy',
+    'subagent/catalog',
+    'workspace/changes',
+    'developer/message',
+    'llm/retry',
+    'llm/retry-started',
+    'compaction/start',
+    'compaction/end',
+    'compaction/prune',
+    'compaction/summary',
+    'tool/ptc-dispatch-start',
+    'tool/ptc-dispatch',
+    'hook/invoked',
+    'hook/result',
+    'web/deepseek-search-llm-request',
+    'command/run',
+    'command/done',
+    'deliverables/presented',
+    'agent-preset/selected',
+    'goal/change',
+    'team/member',
+    'team/task',
+    'team/message/queued',
+    'team/message/delivered',
+  ])('skips the audited no-evidence event type %s without leaking it', async type => {
+    const events = insertTurnEvent(completeTurn('普通请求'), 'step/start', {
+      type, data: { NO_EVIDENCE_PAYLOAD: 'must-not-leak' },
+    })
+    const turnEndSeq = events.find(event => event.type === 'turn/end')!.seq
+
+    const result = await projectDshTurnObservationV2(header, events, turnEndSeq, workspace)
+
+    expect(result.status).toBe('OBSERVED')
+    if (result.status !== 'OBSERVED') throw new Error('expected an observation')
+    expect(result.observation.completeness).toBe('COMPLETE')
+    expect(JSON.stringify(result)).not.toContain('NO_EVIDENCE_PAYLOAD')
+  })
+
+  it('still fails closed for a genuinely unknown type that is not audited', async () => {
+    const events = insertTurnEvent(completeTurn('普通请求'), 'step/start', {
+      type: 'plugin/brand-new-required-state', data: { required: true },
+    })
+    const turnEndSeq = events.find(event => event.type === 'turn/end')!.seq
+
+    const result = await projectDshTurnObservationV2(header, events, turnEndSeq, workspace)
+
+    expect(result).toMatchObject({
+      status: 'UNAVAILABLE', healthCode: 'OBSERVATION_PROJECTION_UNAVAILABLE',
+    })
+  })
 })

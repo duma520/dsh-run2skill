@@ -21,3 +21,6 @@ coverage/
 
 .DS_Store
 Thumbs.db
+
+# 本机版本备份（回滚用，不属于发布源码；发布 zip 按规则也不含 version/）
+version/

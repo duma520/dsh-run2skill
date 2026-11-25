@@ -34,8 +34,8 @@ const thirdPartyNotices = readPortableText('../THIRD_PARTY_NOTICES.md')
 describe('published package contract', () => {
   it('pins the public 0.6 alpha identity and portable repository metadata', () => {
     expect(manifest).toMatchObject({
-      name: 'dsh-run2skill',
-      version: '1.0.0',
+      name: '@duma520/dsh-run2skill',
+      version: '1.2.2',
       description: 'Turn explicit DSH session experience into reviewable native Skills',
       keywords: [
         'deepseek-harness',
@@ -48,10 +48,10 @@ describe('published package contract', () => {
       license: 'MIT',
       repository: {
         type: 'git',
-        url: 'git+https://github.com/qkycir-123/dsh-run2skill.git',
+        url: 'git+https://github.com/duma520/dsh-run2skill.git',
       },
-      bugs: { url: 'https://github.com/qkycir-123/dsh-run2skill/issues' },
-      homepage: 'https://github.com/qkycir-123/dsh-run2skill#readme',
+      bugs: { url: 'https://github.com/duma520/dsh-run2skill/issues' },
+      homepage: 'https://github.com/duma520/dsh-run2skill#readme',
       publishConfig: { access: 'public', tag: 'latest' },
     })
     expect(manifest.private).not.toBe(true)
@@ -80,10 +80,10 @@ describe('published package contract', () => {
     ])
     expect(manifest.peerDependencies).toEqual({
       '@deepseek-ai/cordis': '4.1.0',
-      '@deepseek-ai/dsh-agent-preset-registry': '0.2.2-rc.1 || 0.2.2-rc.3',
-      '@deepseek-ai/dsh-scope': '0.2.2-rc.1 || 0.2.2-rc.3',
-      '@deepseek-ai/dsh-client-ui-primitives': '0.2.2-rc.1 || 0.2.2-rc.3',
-      '@deepseek-ai/dsh-typert-protocol': '0.2.2-rc.1 || 0.2.2-rc.3',
+      '@deepseek-ai/dsh-agent-preset-registry': '0.2.2-rc.1 || 0.2.2-rc.3 || 0.2.3-alpha.2',
+      '@deepseek-ai/dsh-scope': '0.2.2-rc.1 || 0.2.2-rc.3 || 0.2.3-alpha.2',
+      '@deepseek-ai/dsh-client-ui-primitives': '0.2.2-rc.1 || 0.2.2-rc.3 || 0.2.3-alpha.2',
+      '@deepseek-ai/dsh-typert-protocol': '0.2.2-rc.1 || 0.2.2-rc.3 || 0.2.3-alpha.2',
     })
     expect(manifest.dsh).toEqual({
       bundle: { patch: './cordis.patch.yml' },
@@ -106,7 +106,7 @@ describe('published package contract', () => {
       const label = language === 'zh' ? '使用文档' : 'User guide'
       const readme = language === 'zh' ? 'README.md' : 'README.en.md'
       expect(readPortableText(`../${locale.meta.detail}`).trim()).toBe(
-        `[${label}](https://github.com/qkycir-123/dsh-run2skill/blob/main/${readme})`,
+        `[${label}](https://github.com/duma520/dsh-run2skill/blob/main/${readme})`,
       )
     }
   })
@@ -133,7 +133,8 @@ describe('published package contract', () => {
   })
 
   it('inserts only the run2skill Host row and never mounts later-slice services', () => {
-    expect(patch).toBe("- insert:\n    - id: run2skill\n      name: dsh-run2skill\n")
-    expect(patch).not.toMatch(/llm|skills|settings/iu)
+    const body = patch.split('\n').filter(line => !line.trimStart().startsWith('#')).join('\n')
+    expect(body).toBe("- insert:\n    - id: run2skill\n      name: '@duma520/dsh-run2skill'\n")
+    expect(body).not.toMatch(/llm|skills|settings/iu)
   })
 })

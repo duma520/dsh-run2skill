@@ -73,4 +73,32 @@ describe('RuntimeNotices', () => {
 
     expect(notices.list()[0]).toMatchObject({ count: 1, firstObservedAt: 30_001 })
   })
+  it('mirrors every recorded notice to the observability hook', () => {
+    const seen: Array<{ healthCode: string; sessionId: string; count: number }> = []
+    const notices = new RuntimeNotices({
+      now: () => 1_000,
+      onRecord: notice => { seen.push({ healthCode: notice.healthCode, sessionId: notice.sessionId, count: notice.count }) },
+    })
+
+    notices.record({ healthCode: 'SESSION_LOG_UNAVAILABLE', sessionId: 'session-1' })
+    notices.record({ healthCode: 'SESSION_LOG_UNAVAILABLE', sessionId: 'session-1' })
+
+    expect(seen).toEqual([
+      { healthCode: 'SESSION_LOG_UNAVAILABLE', sessionId: 'session-1', count: 1 },
+      { healthCode: 'SESSION_LOG_UNAVAILABLE', sessionId: 'session-1', count: 2 },
+    ])
+  })
+
+  it('keeps recording notices when the observability hook throws', () => {
+    const notices = new RuntimeNotices({
+      now: () => 1_000,
+      onRecord: () => { throw new Error('log sink offline') },
+    })
+
+    expect(() => notices.record({ healthCode: 'WORK_ITEM_WRITE_FAILED', sessionId: 'session-1' })).not.toThrow()
+    expect(notices.list()).toContainEqual(expect.objectContaining({
+      healthCode: 'WORK_ITEM_WRITE_FAILED', count: 1,
+    }))
+  })
+
 })

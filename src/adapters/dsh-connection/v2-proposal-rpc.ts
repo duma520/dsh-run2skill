@@ -105,6 +105,7 @@ export interface V2ProposalRpcOptions {
   readonly runtimeAttention?: (sessionId?: string) => {
     readonly runtimeCompleteness: 'KNOWN' | 'UNKNOWN'
     readonly runtimeWarnings: readonly unknown[]
+    readonly generation?: unknown
   }
   readonly learningActions?: (currentScope: z.infer<typeof CurrentScopeV1Schema>) => Promise<readonly ProjectedAttentionAction[]>
 }

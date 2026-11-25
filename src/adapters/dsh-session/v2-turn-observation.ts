@@ -50,6 +50,66 @@ const SUPPORTED_TURN_EVENT_TYPES = new Set([
   'session/end-seed',
 ])
 
+// DSH 0.2.3 added event types this plugin never learned to read. They are *known*
+// to be presentation, host bookkeeping or transport detail, so they cannot carry
+// the evidence a turn observation needs. Listing them explicitly keeps the
+// original contract intact: a genuinely unknown type still fails closed, and only
+// these audited names may pass without contributing evidence. Each entry records
+// why it cannot change the learning verdict.
+const NO_EVIDENCE_TURN_EVENT_TYPES = new Set([
+  // Subagent routing/policy plumbing. Subagent turns are CHILD sessions and are
+  // skipped before projection, so their policy events carry no root evidence.
+  'subagent/model-selection-policy',
+  'subagent/catalog',
+  // A working tree diff is a side effect of tool calls; tool/call and tool/result
+  // already record what ran, so the diff itself adds no user intent.
+  'workspace/changes',
+  // Developer-supplied system prompt text: host configuration, not user input.
+  'developer/message',
+  // Retry bookkeeping: the retried attempt is replayed as its own
+  // assistant/attempt plus tool events, so the retry markers are duplicates.
+  'llm/retry',
+  'llm/retry-started',
+  // Compaction changes what the model sees, never what the user asked for.
+  'compaction/start',
+  'compaction/end',
+  'compaction/prune',
+  'compaction/summary',
+  // PTC dispatch is the transport half of a tool call; tool/call and tool/result
+  // are the authoritative pair.
+  'tool/ptc-dispatch-start',
+  'tool/ptc-dispatch',
+  // Hook invocation receipts: a hook's own effects surface as ordinary
+  // tool/result or message events.
+  'hook/invoked',
+  'hook/result',
+  // Web search request envelope; the assistant message and tool result carry the
+  // content that actually reaches the transcript.
+  'web/deepseek-search-llm-request',
+  // Slash-command lifecycle. Any text a command produces arrives as a normal
+  // user/message or assistant/message event.
+  'command/run',
+  'command/done',
+  // Deliverable presentation is a UI action on artifacts already described by
+  // assistant/tool events.
+  'deliverables/presented',
+  // Preset selection is host configuration; request/header carries the route that
+  // was actually used.
+  'agent-preset/selected',
+  // Goal and team coordination are orchestration metadata. Their substantive
+  // content is delivered as user/message or assistant/message events.
+  'goal/change',
+  'team/member',
+  'team/task',
+  'team/message/queued',
+  'team/message/delivered',
+])
+
+/** True when the event is an audited no-evidence type this build knowingly skips. */
+function isAuditedNoEvidenceEvent(type: string): boolean {
+  return NO_EVIDENCE_TURN_EVENT_TYPES.has(type)
+}
+
 export type DshTurnObservationV2Result =
   | { readonly status: 'OBSERVED'; readonly observation: TurnObservationV2 }
   | { readonly status: 'CHILD' }
@@ -248,7 +308,11 @@ function directUserContentIsTextOnly(events: readonly DshSessionEvent[]): boolea
 function hasUnsupportedRequiredEvent(events: readonly DshSessionEvent[]): boolean {
   return events.some(event => (
     event.type === 'working-directory/change'
-      || (!SUPPORTED_TURN_EVENT_TYPES.has(event.type) && event.ignorable !== true)
+      // Audited no-evidence types are allowed through; anything else unknown
+      // still fails closed unless its own envelope says it is ignorable.
+      || (!SUPPORTED_TURN_EVENT_TYPES.has(event.type)
+        && !isAuditedNoEvidenceEvent(event.type)
+        && event.ignorable !== true)
   ))
 }
 

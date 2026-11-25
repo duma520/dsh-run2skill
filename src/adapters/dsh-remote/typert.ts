@@ -3,7 +3,7 @@ import {
 } from './contract.js'
 
 export const TYPERT = Object.freeze({
-  package: 'dsh-run2skill',
+  package: '@duma520/dsh-run2skill',
   face: 'host',
   schemas: [],
   invocations: RUN2SKILL_REMOTE_DESCRIPTORS,

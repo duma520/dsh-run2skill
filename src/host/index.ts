@@ -37,6 +37,7 @@ import { Run2skillRemoteService } from '../adapters/dsh-remote/service.js'
 import type { Context } from '@deepseek-ai/cordis'
 import { createPurgeRpcHandler } from '../adapters/dsh-connection/purge-rpc.js'
 import { projectRuntimeAttention } from '../adapters/dsh-connection/attention-rpc.js'
+import { createRecallTelemetryRpcHandler } from '../adapters/dsh-connection/recall-telemetry-rpc.js'
 import { createV2RecentSkillActivityRpcHandler } from '../adapters/dsh-connection/v2-recent-skill-activity-rpc.js'
 import { createV2LearningStatusRpcHandler } from '../adapters/dsh-connection/v2-learning-status-rpc.js'
 import { createV2ProposalRpcHandler } from '../adapters/dsh-connection/v2-proposal-rpc.js'
@@ -106,6 +107,9 @@ import type { PurgeScopeBindingV1 } from '../domain/purge/index.js'
 import { DshV2ProductionRuntime } from './v2-production-runtime.js'
 import { retrievalSettings, RetrievalSettingsSchema, type RetrievalConfig } from '../adapters/dsh-settings/retrieval.js'
 import { PersistentVectorCache, type RetrievalStorageContext } from '../adapters/dsh-storage/retrieval-domain.js'
+import { attachFileLog } from '../adapters/dsh-logging/file-log.js'
+import { identifyGeneration } from '../adapters/dsh-logging/plugin-generation.js'
+import { projectRuntimeGeneration } from '../adapters/dsh-connection/attention-rpc.js'
 
 export {
   PublicationConflict,
@@ -120,6 +124,12 @@ export * from '../application/publication/index.js'
 
 export const name = 'run2skill'
 export const Config = RetrievalSettingsSchema
+/**
+ * How often the generation self-check may re-read the plugin entry from disk.
+ * The settings page polls attention every 10s; probing at that rate would touch
+ * the filesystem on every poll for no benefit, so it is throttled well above it.
+ */
+const GENERATION_REFRESH_MS = 60_000
 export const inject = [
   'agents',
   'sessions',
@@ -497,8 +507,12 @@ export class Run2skillRuntimeFactory implements RecoveryRuntimeFactory {
         ...(purgeDiagnostics === undefined
           ? {}
           : {
-              beforeDeleteWorkItem: async (id: string) => await purgeDiagnostics.deleteWorkItemWithinMutation(id),
-              beforeDeleteAll: async () => await purgeDiagnostics.deleteAllWithinMutation(),
+              beforeDeleteWorkItem: async (id: string) => {
+                await purgeDiagnostics.deleteWorkItemWithinMutation(id)
+              },
+              beforeDeleteAll: async () => {
+                await purgeDiagnostics.deleteAllWithinMutation()
+              },
             }),
         onHidden: () => {
           scheduler.abortMatching(item => !visibility.workItemVisible(item))
@@ -673,6 +687,19 @@ class Run2skillV2RuntimeFactory implements RecoveryRuntimeFactory {
     readonly filesystem: unknown
     readonly workspaceBinding?: StockWorkspaceContractBinding | undefined
   }>()
+  // Reading every historical Session log costs ~70s on this machine. open() runs
+  // on each recovery attempt, so re-hydrating every time turned a single retry
+  // loop into a permanent 70s-per-round re-scan. Keep the result: entries are
+  // plain metadata and do not hold anything owned by the runtime that close()
+  // releases.
+  readonly #hydratedEntries = new Map<string, {
+    readonly header: DshSessionHeader
+    readonly scope: object
+    readonly configuration: StockSkillRuntimeConfiguration
+    readonly filesystem: unknown
+    readonly workspaceBinding?: StockWorkspaceContractBinding | undefined
+  }>()
+  #hydratedOnce = false
 
   constructor(
     private readonly context: Run2skillHostContext,
@@ -790,13 +817,15 @@ class Run2skillV2RuntimeFactory implements RecoveryRuntimeFactory {
       sessionCwdDigest: deriveSessionCwdDigest(header.cwd),
     })
     if (this.#changedDirectorySessions.has(lifecycleKey)) return
-    this.#dormantSessions.set(lifecycleKey, {
+    const entry = {
       header,
       scope,
       configuration,
       filesystem: this.context.fs,
       ...(workspaceBinding === undefined ? {} : { workspaceBinding }),
-    })
+    }
+    this.#dormantSessions.set(lifecycleKey, entry)
+    this.#hydratedEntries.set(lifecycleKey, entry)
   }
 
   #currentDormant(session: { readonly scope: object }): boolean {
@@ -804,6 +833,13 @@ class Run2skillV2RuntimeFactory implements RecoveryRuntimeFactory {
   }
 
   async #hydrateDormantSessions(): Promise<void> {
+    if (this.#hydratedOnce) {
+      // close() clears the live map but never the hydrated copy.
+      for (const [lifecycleKey, entry] of this.#hydratedEntries) {
+        if (!this.#changedDirectorySessions.has(lifecycleKey)) this.#dormantSessions.set(lifecycleKey, entry)
+      }
+      return
+    }
     let snapshots: readonly { readonly header: DshSessionHeader }[]
     try {
       const listed = await new DshSessionGapReader(this.context.sessionPersistence).listSnapshots()
@@ -831,6 +867,7 @@ class Run2skillV2RuntimeFactory implements RecoveryRuntimeFactory {
         // One unavailable historical Session must not block recovery of others.
       }
     }
+    this.#hydratedOnce = true
   }
 
   #dormantForView(view: LearningSkillView<Run2skillAgent>) {
@@ -1025,17 +1062,71 @@ function v2Summary(
 }
 
 export async function apply(context: Run2skillHostContext, config: RetrievalConfig): Promise<() => Promise<void>> {
-  const notices = new RuntimeNotices()
+  const log = attachFileLog(context as unknown as Context)
+  // RuntimeNotices is memory-only, so a health code explaining a stuck recovery
+  // died with the process. Mirror every recorded notice into the plugin log.
+  const notices = new RuntimeNotices({
+    onRecord: notice => {
+      log.record('runtime.health', {
+        healthCode: notice.healthCode,
+        sessionId: notice.sessionId,
+        count: notice.count,
+      })
+    },
+  })
   const scopes = new ExactAgentScopeRegistry<Run2skillAgent>()
   const scopeDisposers = new WeakMap<Run2skillAgent, () => void>()
   const mutationGate = new HostMutationGate()
   const factory = new Run2skillV2RuntimeFactory(context, notices, scopes, config)
-  const lifecycle = new RecoveryLifecycle(factory, candidateKey, notices)
+  const lifecycle = new RecoveryLifecycle(factory, candidateKey, notices, {
+    reportFailure: error => {
+      log.record('plugin.recovery_failed', {
+        message: error instanceof Error ? error.message : String(error),
+      })
+    },
+  })
   const ingress = new SessionCoordinateIngress(
     candidate => { lifecycle.accept(candidate) },
-    health => { notices.record({ healthCode: health.code, sessionId: 'global' }) },
+    health => {
+      notices.record({ healthCode: health.code, sessionId: 'global' })
+      log.record('ingress.health', { healthCode: health.code })
+    },
   )
   let accepting = true
+  log.record('plugin.apply', { logFile: log.file, advancedRecall: config.advancedRecall?.get() })
+
+  // Generation self-check: `runtimeAttention` is a synchronous projection, so the
+  // identity is computed once here and refreshed lazily (at most every
+  // GENERATION_REFRESH_MS) the next time attention is read. An unresolved
+  // identity simply omits the block.
+  let generation: ReturnType<typeof projectRuntimeGeneration> | undefined
+  let lastGenerationProbe = 0
+  let probing = false
+  const refreshGeneration = async (): Promise<void> => {
+    if (probing) return
+    probing = true
+    try {
+      const identity = await identifyGeneration()
+      generation = projectRuntimeGeneration(identity)
+      lastGenerationProbe = Date.now()
+      if (identity.restartRequired) {
+        log.record('plugin.generation_stale', {
+          codeGeneration: identity.codeGeneration,
+          diskGeneration: identity.diskGeneration,
+        })
+      }
+    } catch (error) {
+      lastGenerationProbe = Date.now()
+      log.record('plugin.generation_probe_failed', { error: error instanceof Error ? error.message : String(error) })
+    } finally {
+      probing = false
+    }
+  }
+  const maybeRefreshGeneration = (): void => {
+    if (Date.now() - lastGenerationProbe < GENERATION_REFRESH_MS) return
+    void refreshGeneration()
+  }
+  await refreshGeneration()
 
   context.on('session/event', (session: DshSessionProjection, event: DshSessionEvent) => {
     if (accepting) {
@@ -1146,7 +1237,10 @@ export async function apply(context: Run2skillHostContext, config: RetrievalConf
             : { lastHealthCode: notices.list().at(-1)!.healthCode }),
         }
       },
-      runtimeAttention: sessionId => projectRuntimeAttention(notices, sessionId),
+      runtimeAttention: sessionId => {
+        maybeRefreshGeneration()
+        return projectRuntimeAttention(notices, sessionId, generation)
+      },
       learningActions: async currentScope => await (factory.currentV2Runtime?.attention.project(currentScope) ?? []),
     },
     v2LearningRpc,
@@ -1174,19 +1268,27 @@ export async function apply(context: Run2skillHostContext, config: RetrievalConf
     resolveCurrentWorkspace,
     v2LearningStatusRpc,
   )
+  const recallTelemetryRpc = createRecallTelemetryRpcHandler(
+    () => factory.currentV2Domain,
+    resolveCurrentWorkspace,
+    v2Rpc,
+  )
   const remoteHandler = createObserveSummaryRpcHandler(
     readSummary,
-    v2Rpc,
+    recallTelemetryRpc,
   )
   new Run2skillRemoteService(context as unknown as Context, remoteHandler)
 
   await lifecycle.start()
+  log.record('plugin.ready', { status: lifecycle.status })
   return async () => {
     accepting = false
+    log.record('plugin.dispose', {})
     try {
       await lifecycle.dispose()
     } finally {
       scopes.clear()
+      log.dispose()
     }
   }
 }

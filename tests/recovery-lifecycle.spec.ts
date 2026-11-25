@@ -278,4 +278,29 @@ describe('RecoveryLifecycle', () => {
   it('uses the public default queue bound of 1024 candidates', () => {
     expect(CAPTURE_QUEUE_LIMIT).toBe(1_024)
   })
+  it('reports the underlying recovery failure instead of swallowing it', async () => {
+    const reported: string[] = []
+    const lifecycle = new RecoveryLifecycle(
+      {
+        open: async () => {
+          throw new Error('gap scan unavailable: SESSION_LOG_UNAVAILABLE')
+        },
+      },
+      candidateKey,
+      new RuntimeNotices({ now: () => 1_000 }),
+      {
+        schedule: () => undefined,
+        cancelScheduled: () => undefined,
+        reportFailure: error => {
+          reported.push(error instanceof Error ? error.message : String(error))
+        },
+      },
+    )
+
+    await lifecycle.start()
+
+    expect(lifecycle.status).toBe('DEGRADED')
+    expect(reported).toEqual(['gap scan unavailable: SESSION_LOG_UNAVAILABLE'])
+  })
+
 })

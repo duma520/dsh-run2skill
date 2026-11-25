@@ -816,3 +816,47 @@ test('journal records are bounded hash-chain facts and ignore a torn newest reco
     (error) => error instanceof PublicationConflict && error.code === 'journal_limit',
   )
 })
+
+test('MERGE keeps the replaced bytes in a bounded history and CREATE keeps none', async (t) => {
+  const root = await fixture(t)
+  const versions = ['# v1\n', '# v2\n', '# v3\n', '# v4\n', '# v5\n']
+  await seedBundle(root, 'history-skill', versions[0])
+
+  const historyDir = join(root, probeInternals.HISTORY_DIR, 'history-skill')
+  assert.deepEqual(await readdir(join(root, probeInternals.HISTORY_DIR)).catch(() => []), [])
+
+  for (let index = 1; index < versions.length; index += 1) {
+    const txid = `history-tx-${index}`
+    const result = await mergeBundle({
+      root,
+      name: 'history-skill',
+      txid,
+      expectedHash: sha256(versions[index - 1]),
+      nextBytes: versions[index],
+    })
+    assert.equal(result.status, 'written')
+    const finalized = await finalizeTransaction({ root, txid, confirmedExactReadback: true })
+    assert.equal(finalized.status, 'finalized')
+    assert.equal(await readFile(join(root, 'history-skill', 'SKILL.md'), 'utf8'), versions[index])
+  }
+
+  const archived = (await readdir(historyDir)).sort()
+  assert.equal(archived.length, probeInternals.MAX_HISTORY_VERSIONS)
+  assert.ok(archived.every(entry => /^[a-f0-9]{64}\.md$/.test(entry)))
+  const archivedBodies = []
+  for (const entry of archived) archivedBodies.push(await readFile(join(historyDir, entry), 'utf8'))
+  // The newest replaced version (v4) must still be there; v1 is the one dropped.
+  assert.ok(archivedBodies.includes(versions[3]))
+  assert.ok(!archivedBodies.includes(versions[0]))
+
+  const createRoot = await fixture(t)
+  const created = await createBundle({
+    root: createRoot,
+    name: 'fresh-skill',
+    txid: 'fresh-tx',
+    nextBytes: '# first\n',
+  })
+  assert.equal(created.status, 'written')
+  await finalizeTransaction({ root: createRoot, txid: 'fresh-tx', confirmedExactReadback: true })
+  assert.deepEqual(await readdir(join(createRoot, probeInternals.HISTORY_DIR)).catch(() => []), [])
+})

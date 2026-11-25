@@ -1,6 +1,6 @@
 {
-  "name": "dsh-run2skill",
-  "version": "1.0.0",
+  "name": "@duma520/dsh-run2skill",
+  "version": "1.2.2",
   "description": "Turn explicit DSH session experience into reviewable native Skills",
   "icon": "./assets/run2skill-logo.webp",
   "keywords": [
@@ -14,12 +14,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/qkycir-123/dsh-run2skill.git"
+    "url": "git+https://github.com/duma520/dsh-run2skill.git"
   },
   "bugs": {
-    "url": "https://github.com/qkycir-123/dsh-run2skill/issues"
+    "url": "https://github.com/duma520/dsh-run2skill/issues"
   },
-  "homepage": "https://github.com/qkycir-123/dsh-run2skill#readme",
+  "homepage": "https://github.com/duma520/dsh-run2skill#readme",
   "publishConfig": {
     "access": "public",
     "tag": "latest"
@@ -93,10 +93,10 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "4.1.0",
-    "@deepseek-ai/dsh-agent-preset-registry": "0.2.2-rc.1 || 0.2.2-rc.3",
-    "@deepseek-ai/dsh-scope": "0.2.2-rc.1 || 0.2.2-rc.3",
-    "@deepseek-ai/dsh-client-ui-primitives": "0.2.2-rc.1 || 0.2.2-rc.3",
-    "@deepseek-ai/dsh-typert-protocol": "0.2.2-rc.1 || 0.2.2-rc.3"
+    "@deepseek-ai/dsh-agent-preset-registry": "0.2.2-rc.1 || 0.2.2-rc.3 || 0.2.3-alpha.2",
+    "@deepseek-ai/dsh-scope": "0.2.2-rc.1 || 0.2.2-rc.3 || 0.2.3-alpha.2",
+    "@deepseek-ai/dsh-client-ui-primitives": "0.2.2-rc.1 || 0.2.2-rc.3 || 0.2.3-alpha.2",
+    "@deepseek-ai/dsh-typert-protocol": "0.2.2-rc.1 || 0.2.2-rc.3 || 0.2.3-alpha.2"
   },
   "devDependencies": {
     "@deepseek-ai/cordis-plugin-group": "1.1.0",
