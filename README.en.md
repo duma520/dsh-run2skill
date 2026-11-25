@@ -5,12 +5,12 @@
 <p align="center"><strong>Turn today's lessons into tomorrow's skills.</strong></p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.2.2-247C78" alt="version 1.2.2" />
+  <img src="https://img.shields.io/badge/version-1.2.3-247C78" alt="version 1.2.3" />
   <img src="https://img.shields.io/badge/DSH-0.2.3--alpha.2%20%7C%200.2.2--rc.3%20%7C%200.2.2--rc.1-153B3C" alt="Supports DSH 0.2.3-alpha.2, 0.2.2-rc.3 and 0.2.2-rc.1" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-EAB45C" alt="MIT license" /></a>
 </p>
 
-> **This is the duma520 fork (`@duma520/dsh-run2skill` v1.2.2).**
+> **This is the duma520 fork (`@duma520/dsh-run2skill` v1.2.3).**
 >
 > Upstream: [qkycir-123/dsh-run2skill](https://github.com/qkycir-123/dsh-run2skill) v1.0.0.
 >
@@ -66,12 +66,12 @@ This fork is **not distributed via npm**. It is mounted from a local directory w
    > Copying `version/20261125-v4/lib/` from the local backup directory works too — byte-identical.
 
    Steps 2–6 below use `G:\DSH\dsh-plugins\dsh-run2skill`; replace that path everywhere if you installed elsewhere.
-2. **Register the dependency** in `C:\Users\duma520\.dsh\profiles\desktop\package.json`:
+2. **Register the dependency** in `%USERPROFILE%\.dsh\profiles\desktop\package.json`:
    ```json
    "@duma520/dsh-run2skill": "link:G:/DSH/dsh-plugins/dsh-run2skill"
    ```
 3. **Add** `"@duma520/dsh-run2skill"` to the `dsh.profile.bundles` array. Without it the host never assembles the Host/Client halves.
-4. **Create the directory symlink** under `C:\Users\duma520\.dsh\profiles\desktop\node_modules\@duma520\`:
+4. **Create the directory symlink** under `%USERPROFILE%\.dsh\profiles\desktop\node_modules\@duma520\`:
    ```cmd
    mklink /D dsh-run2skill G:\DSH\dsh-plugins\dsh-run2skill
    ```
@@ -79,7 +79,7 @@ This fork is **not distributed via npm**. It is mounted from a local directory w
 5. **Edit `cordis.patch.yml`**: in the `- id: run2skill` block set `name` to `"@duma520/dsh-run2skill"` — **the quotes are mandatory**, because a bare scalar starting with `@` is invalid YAML.
 6. **Quit the DSH desktop app completely and restart it.** The bundle manifest and client modules are assembled only at boot; hot reload does not apply them.
 
-After restart, the **Plugins** page should list `dsh-run2skill` at version `1.2.2` with no red incompatibility banner.
+After restart, the **Plugins** page should list `dsh-run2skill` at version `1.2.3` with no red incompatibility banner.
 
 ### Why the `dsh plugin` CLI cannot be used here
 
@@ -142,10 +142,10 @@ Four capabilities about diagnosing, rolling back, and telling versions apart. No
 
 ### 1. A file log the plugin owns
 
-- Path: `~/.dsh/dsh-run2skill/logs/run2skill.log` (on Windows, `C:\Users\<you>\.dsh\dsh-run2skill\logs\run2skill.log`).
+- Path: `~/.dsh/dsh-run2skill/logs/run2skill.log` (on Windows, `%USERPROFILE%\.dsh\dsh-run2skill\logs\run2skill.log`).
 - Format: one JSON object per line with `ts` / `level` / `name` / `message` / `args`. File mode `0600`.
 - Rotation: once a file exceeds **5 MB** it is renamed to `run2skill.log.1` (one previous file, no unbounded growth).
-- Redaction: every field is redacted before writing. `password=`, `authorization:` headers, bearer tokens and credentials embedded in URLs become `[REDACTED]`; structured fields (numbers, booleans, arrays) are kept as-is.
+- Redaction: every field is redacted before writing. Password-style key/value assignments, authentication headers, bearer tokens and credentials embedded in URLs become `[REDACTED]`; structured fields (numbers, booleans, arrays) are kept as-is.
 - Safety valve: **a log write failure is never thrown** — logging must not break the agent loop.
 - What gets logged: plugin apply/ready/dispose, ingress health codes, stale-generation warnings, failed generation probes.
 
@@ -184,12 +184,12 @@ Follow the installation instructions for your host version, then restart DSH.
 
 **Uninstall / roll back this fork** (manual, because the desktop profile cannot use the CLI):
 
-1. Remove `"@duma520/dsh-run2skill"` from `dependencies` and from `dsh.profile.bundles` in `C:\Users\duma520\.dsh\profiles\desktop\package.json`.
+1. Remove `"@duma520/dsh-run2skill"` from `dependencies` and from `dsh.profile.bundles` in `%USERPROFILE%\.dsh\profiles\desktop\package.json`.
 2. Remove the `- id: run2skill` block from `cordis.patch.yml` (or comment it out).
-3. Delete the symlink `C:\Users\duma520\.dsh\profiles\desktop\node_modules\@duma520\dsh-run2skill`.
+3. Delete the symlink `%USERPROFILE%\.dsh\profiles\desktop\node_modules\@duma520\dsh-run2skill`.
 4. Restart the DSH desktop app.
 
-**Roll back to the upstream plugin**: rename `node_modules\dsh-run2skill.disabled-by-duma520` back to `node_modules\dsh-run2skill`, then restore `"dsh-run2skill": "1.0.0"` in `dependencies`, `"dsh-run2skill"` in `bundles`, and `name: "dsh-run2skill"` in `cordis.patch.yml`. The pre-change files are backed up in `C:\Users\duma520\.dsh\profiles\desktop\.backup-run2skill\`.
+**Roll back to the upstream plugin**: rename `node_modules\dsh-run2skill.disabled-by-duma520` back to `node_modules\dsh-run2skill`, then restore `"dsh-run2skill": "1.0.0"` in `dependencies`, `"dsh-run2skill"` in `bundles`, and `name: "dsh-run2skill"` in `cordis.patch.yml`. The pre-change files are backed up in `%USERPROFILE%\.dsh\profiles\desktop\.backup-run2skill\`.
 
 Upstream generic uninstall command (other hosts):
 
@@ -204,6 +204,7 @@ For Web, replace `desktop` with `web`. Saved Skills and plugin data remain after
 | Version | Date | Change |
 | --- | --- | --- |
 | 1.2.1 | 2026-11-25 | Fix: one truncated Session log made recovery retry forever; also log health codes and recovery failure causes, and cache the historical Session hydration |
+| 1.2.3 | 2026-11-26 | Fix CI: log rotation only applies to regular files (cross-platform), boundary spec neutralises event literals, candidate verification tracks the fork identity |
 | 1.2.2 | 2026-11-25 | Fix: the event allow-list was missing 24 DSH 0.2.3 types, so recovery stayed DEGRADED; unprojectable Sessions are now skipped instead of aborting the batch |
 | 1.2.0 | 2026-11-25 | Added four capabilities: own file log, runtime generation self-check, skill recall telemetry, publication history snapshots |
 | 1.1.0 | 2026-11-25 | Forked as `@duma520/dsh-run2skill`; widened peer allow-list for DSH 0.2.3-alpha.2 |

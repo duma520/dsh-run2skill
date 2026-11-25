@@ -6,10 +6,18 @@ describe('DSH session adapter boundary', () => {
     const source = globSync('src/adapters/dsh-session/**/*.ts')
       .map((file) => readFileSync(file, 'utf8'))
       .join('\n')
-    const dependencySource = source.replaceAll(
+    // Event-type literals are DSH session-log vocabulary, not a dependency on
+    // the model layer, so they are neutralised before the word scan. Keep
+    // this list in sync with the audited event names in the adapter.
+    let dependencySource = source
+    for (const literal of [
       "'session/title-llm-request'",
-      "'session/title-request-event'",
-    )
+      "'llm/retry'",
+      "'llm/retry-started'",
+      "'web/deepseek-search-llm-request'",
+    ]) {
+      dependencySource = dependencySource.replaceAll(literal, "'session/event-type'")
+    }
 
     expect(source).not.toMatch(/from ['"]node:fs/)
     expect(dependencySource).not.toMatch(/\b(?:llm|skills|settings|storageDomain)\b/i)

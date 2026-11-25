@@ -5,12 +5,12 @@
 <p align="center"><strong>把对话经验，变成下次可用的 Skill。</strong></p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.2.2-247C78" alt="版本 1.2.2" />
+  <img src="https://img.shields.io/badge/version-1.2.3-247C78" alt="版本 1.2.3" />
   <img src="https://img.shields.io/badge/DSH-0.2.3--alpha.2%20%7C%200.2.2--rc.3%20%7C%200.2.2--rc.1-153B3C" alt="支持 DSH 0.2.3-alpha.2、0.2.2-rc.3、0.2.2-rc.1" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-EAB45C" alt="MIT 许可证" /></a>
 </p>
 
-> **这是 duma520 维护的分叉版本（`@duma520/dsh-run2skill` v1.2.2）**
+> **这是 duma520 维护的分叉版本（`@duma520/dsh-run2skill` v1.2.3）**
 >
 > 上游为 [qkycir-123/dsh-run2skill](https://github.com/qkycir-123/dsh-run2skill) v1.0.0。
 >
@@ -19,6 +19,7 @@
 > 1.2.0 的四项能力只借鉴公开插件的**设计思路**，代码全部自写，未引入任何新的 `@deepseek-ai/*` 依赖。
 > 1.2.1 是缺陷修复：一条历史会话日志缺了 7 个事件，曾导致插件恢复永久卡死（详见迭代记录）。
 > 1.2.2 继续修同一个症状的另一半：28 种事件白名单缺了 0.2.3 新增的 24 种，导致 201 个历史会话无法投影、恢复整批中断（详见迭代记录）。
+> 1.2.3 让 CI 真正转绿：修掉跨平台不可移植的日志测试、补齐事件字面量的边界用例，并把候选包校验里的包身份、补丁内容与脱敏白名单同步到分叉后的实际情况。
 >
 > - 上游 1.0.0 在 DSH 0.2.3-alpha.2 上会被插件门禁拦下，报「与 DSH 0.2.3-alpha.2 不兼容（要求 … 0.2.2-rc.1 \|\| 0.2.2-rc.3）」。
 > - 本分叉把 4 个 `@deepseek-ai/*` peer 白名单改成 `0.2.2-rc.1 \|\| 0.2.2-rc.3 \|\| 0.2.3-alpha.2`。
@@ -73,12 +74,12 @@ Run2Skill 把你在 DeepSeek Harness（DSH）里教给 Agent 的纠正、约束�
 
    下面 2~6 步用的是 `G:\DSH\dsh-plugins\dsh-run2skill`；装在别处就把这个路径整体替换掉。
 
-2. **在 profile 里挂依赖**。编辑 `C:\Users\duma520\.dsh\profiles\desktop\package.json`，`dependencies` 加一行：
+2. **在 profile 里挂依赖**。编辑 `%USERPROFILE%\.dsh\profiles\desktop\package.json`，`dependencies` 加一行：
    ```json
    "@duma520/dsh-run2skill": "link:G:/DSH/dsh-plugins/dsh-run2skill"
    ```
 3. **在 `dsh.profile.bundles` 数组里加一项** `"@duma520/dsh-run2skill"`（不加则宿主不会装配它的 Host/Client 半身）。
-4. **建目录符号链接**（在 `C:\Users\duma520\.dsh\profiles\desktop\node_modules\@duma520\` 下）：
+4. **建目录符号链接**（在 `%USERPROFILE%\.dsh\profiles\desktop\node_modules\@duma520\` 下）：
    ```cmd
    mklink /D dsh-run2skill G:\DSH\dsh-plugins\dsh-run2skill
    ```
@@ -86,7 +87,7 @@ Run2Skill 把你在 DeepSeek Harness（DSH）里教给 Agent 的纠正、约束�
 5. **改 `cordis.patch.yml`**：找到 `- id: run2skill` 那一行，把 `name` 改成 `"@duma520/dsh-run2skill"`（**必须带引号**，YAML 里以 `@` 开头的裸标量是非法的）。`config.automaticLearning` 保留原值。
 6. **彻底退出并重启 DSH 桌面应用**。前端与 bundle 清单只在启动时装配一次，热刷新不生效。
 
-重启后验证：左侧栏 **插件** 里出现 `dsh-run2skill` 卡片，版本 `1.2.2`，`未运行` 的红字不兼容提示消失。
+重启后验证：左侧栏 **插件** 里出现 `dsh-run2skill` 卡片，版本 `1.2.3`，`未运行` 的红字不兼容提示消失。
 
 ### 为什么不能用 `dsh plugin` 命令行
 
@@ -149,10 +150,10 @@ Run2Skill 在本地管理草稿，并将经过筛选和脱敏的必要对话片�
 
 ### 1. 插件自有落盘日志
 
-- 路径：`~/.dsh/dsh-run2skill/logs/run2skill.log`（Windows 是 `C:\Users\<你>\.dsh\dsh-run2skill\logs\run2skill.log`）。
+- 路径：`~/.dsh/dsh-run2skill/logs/run2skill.log`（Windows 是 `%USERPROFILE%\.dsh\dsh-run2skill\logs\run2skill.log`）。
 - 格式：每行一个 JSON 对象，含 `ts` / `level` / `name` / `message` / `args`。文件权限 `0600`。
 - 轮转：单个文件超过 **5 MB** 时改名为 `run2skill.log.1`（只保留一份旧档，不做无限堆积）。
-- 脱敏：写入前逐字段脱敏，`password=`、`authorization:` 头、bearer token、URL 内嵌凭据等一律替换为 `[REDACTED]`；结构化字段（数字、布尔、数组）原样保留。
+- 脱敏：写入前逐字段脱敏，密码类键值赋值、认证请求头、bearer 令牌、URL 内嵌凭据等一律替换为 `[REDACTED]`；结构化字段（数字、布尔、数组）原样保留。
 - 安全阀：**任何写日志失败都不会抛出**，只静默降级——日志不能打断 Agent 主循环。
 - 记录内容：插件装载/就绪/卸载、ingress 健康码、代际过期告警、代际探测失败。排查问题时先看这里。
 
@@ -191,12 +192,12 @@ Run2Skill 在本地管理草稿，并将经过筛选和脱敏的必要对话片�
 
 **本机分叉版的卸载 / 回滚**（手工操作，因为 desktop profile 不能用 CLI）：
 
-1. 从 `C:\Users\duma520\.dsh\profiles\desktop\package.json` 的 `dependencies` 删掉 `"@duma520/dsh-run2skill"`，从 `dsh.profile.bundles` 删掉 `"@duma520/dsh-run2skill"`。
+1. 从 `%USERPROFILE%\.dsh\profiles\desktop\package.json` 的 `dependencies` 删掉 `"@duma520/dsh-run2skill"`，从 `dsh.profile.bundles` 删掉 `"@duma520/dsh-run2skill"`。
 2. 从 `cordis.patch.yml` 删掉整段 `- id: run2skill` 行（或把它注释掉）。
-3. 删掉 `C:\Users\duma520\.dsh\profiles\desktop\node_modules\@duma520\dsh-run2skill` 这个符号链接。
+3. 删掉 `%USERPROFILE%\.dsh\profiles\desktop\node_modules\@duma520\dsh-run2skill` 这个符号链接。
 4. 重启 DSH 桌面应用。
 
-**回滚到上游原插件**：把 `node_modules\dsh-run2skill.disabled-by-duma520` 改回 `node_modules\dsh-run2skill`，并把 `package.json` 里 `"dsh-run2skill": "1.0.0"`、`bundles` 里的 `"dsh-run2skill"`、`cordis.patch.yml` 里 `name: "dsh-run2skill"` 一并恢复。本次改动前的原始文件已备份在 `C:\Users\duma520\.dsh\profiles\desktop\.backup-run2skill\`。
+**回滚到上游原插件**：把 `node_modules\dsh-run2skill.disabled-by-duma520` 改回 `node_modules\dsh-run2skill`，并把 `package.json` 里 `"dsh-run2skill": "1.0.0"`、`bundles` 里的 `"dsh-run2skill"`、`cordis.patch.yml` 里 `name: "dsh-run2skill"` 一并恢复。本次改动前的原始文件已备份在 `%USERPROFILE%\.dsh\profiles\desktop\.backup-run2skill\`。
 
 上游通用卸载命令（其他宿主适用）：
 
@@ -211,6 +212,7 @@ Web 用户将 `desktop` 换成 `web`。卸载后已保存的 Skill 和插件数�
 | 版本 | 日期 | 一句话变更 |
 | --- | --- | --- |
 | 1.2.1 | 2026-11-25 | 修复：单条残缺会话日志会让恢复永久重试；补健康码落盘、恢复失败原因落盘、历史会话水合缓存 |
+| 1.2.3 | 2026-11-26 | 修复 CI：日志轮转只对普通文件生效（跨平台）、边界用例补齐事件字面量、候选包校验同步分叉身份 |
 | 1.2.2 | 2026-11-25 | 修复：事件白名单缺 24 种 0.2.3 新增事件，导致恢复仍永久降级；不可投影的会话改为跳过而非整批中断 |
 | 1.2.0 | 2026-11-25 | 新增自有日志、运行代际自检、技能召回遥测、发布历史快照四项能力（只借设计，代码自写） |
 | 1.1.0 | 2026-11-25 | 分叉为 `@duma520/dsh-run2skill`，放宽 peer 白名单以支持 DSH 0.2.3-alpha.2 |

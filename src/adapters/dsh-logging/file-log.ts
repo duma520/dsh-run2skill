@@ -121,12 +121,18 @@ export function createFileLogSink(paths: Run2skillLogPaths, maxBytes: number): F
       try {
         ensureReady()
         let size = 0
+        let rotate = false
         try {
-          size = statSync(paths.file).size
+          const existing = statSync(paths.file)
+          size = existing.size
+          // Only a regular file may be rotated. Without this guard a path that
+          // happens to be a directory would be renamed away as if it were the
+          // log, which behaves differently on Windows and Linux.
+          rotate = existing.isFile()
         } catch {
           size = 0
         }
-        if (size > 0 && size + Buffer.byteLength(line) > maxBytes) {
+        if (rotate && size > 0 && size + Buffer.byteLength(line) > maxBytes) {
           try {
             renameSync(paths.file, `${paths.file}.1`)
           } catch {

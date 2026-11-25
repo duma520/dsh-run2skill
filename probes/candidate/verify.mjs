@@ -44,6 +44,13 @@ const permittedFixtureLocations = new Set([
   ['probes/support/safe-diagnostics.mjs', 'SECRET_ASSIGNMENT', 'provider_credential', 3],
   ['src/domain/observe/redaction.ts', 'AUTHORIZATION', 112],
   ['tests/observe-summary-rpc.spec.ts', 'SECRET_ASSIGNMENT', 'token', 33],
+  // Synthetic credential shapes used to prove the log redactor works.
+  ['tests/file-log.spec.ts', 'API_KEY', 58],
+  ['tests/file-log.spec.ts', 'API_KEY', 59],
+  ['tests/file-log.spec.ts', 'AUTHORIZATION', 58],
+  ['tests/file-log.spec.ts', 'BEARER_TOKEN', 58],
+  ['tests/file-log.spec.ts', 'AUTHORIZATION', 63],
+  ['tests/file-log.spec.ts', 'BEARER_TOKEN', 63],
   ['tests/redaction.spec.ts', 'AUTHORIZATION', 13],
   ['tests/redaction.spec.ts', 'AUTHORIZATION', 81],
   ['tests/redaction.spec.ts', 'AUTHORIZATION', 84],
@@ -229,9 +236,16 @@ for (const sample of ['attempt_key=ordinaryvalue123', 'target_key=/workspace/ski
 }
 
 const packArgs = ['pack', '--json', '--pack-destination', packageDirectory]
-const packOutput = process.env.npm_execpath === undefined
+// npm_execpath is a JS file on POSIX but a native binary on Windows, so only
+// the JS case may be launched through node.
+const packRunner = process.env.npm_execpath === undefined
+  ? undefined
+  : process.env.npm_execpath
+const packOutput = packRunner === undefined
   ? run('pnpm', packArgs, { shell: process.platform === 'win32' })
-  : run(process.execPath, [process.env.npm_execpath, ...packArgs])
+  : /\.(?:exe|cmd|bat)$/iu.test(packRunner)
+    ? run(packRunner, packArgs, { shell: process.platform === 'win32' })
+    : run(process.execPath, [packRunner, ...packArgs])
 const packed = JSON.parse(packOutput)
 const packageFiles = packed.files.map(file => file.path).sort()
 const contractChunks = packageFiles.filter(file => /^lib\/contract-[A-Za-z0-9_-]+\.js$/u.test(file))
@@ -264,8 +278,8 @@ assert.deepEqual({
   dsh: packedManifest.dsh,
   peerDependencies: packedManifest.peerDependencies,
 }, {
-  name: 'dsh-run2skill',
-  version: '1.0.0',
+  name: '@duma520/dsh-run2skill',
+  version: '1.2.3',
   description: 'Turn explicit DSH session experience into reviewable native Skills',
   icon: './assets/run2skill-logo.webp',
   keywords: [
@@ -281,10 +295,10 @@ assert.deepEqual({
   files: ['lib', 'cordis.patch.yml', 'README.en.md', 'README.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'assets/run2skill-logo.webp', 'locale/*.json', 'locale/*.md'],
   repository: {
     type: 'git',
-    url: 'git+https://github.com/qkycir-123/dsh-run2skill.git',
+    url: 'git+https://github.com/duma520/dsh-run2skill.git',
   },
-  bugs: { url: 'https://github.com/qkycir-123/dsh-run2skill/issues' },
-  homepage: 'https://github.com/qkycir-123/dsh-run2skill#readme',
+  bugs: { url: 'https://github.com/duma520/dsh-run2skill/issues' },
+  homepage: 'https://github.com/duma520/dsh-run2skill#readme',
   publishConfig: { access: 'public', tag: 'latest' },
   exports: {
     '.': { types: './lib/index.d.ts', default: './lib/index.js' },
@@ -307,15 +321,21 @@ assert.deepEqual({
   },
   peerDependencies: {
     '@deepseek-ai/cordis': '4.1.0',
-    '@deepseek-ai/dsh-agent-preset-registry': '0.2.2-rc.1 || 0.2.2-rc.3',
-    '@deepseek-ai/dsh-scope': '0.2.2-rc.1 || 0.2.2-rc.3',
-    '@deepseek-ai/dsh-client-ui-primitives': '0.2.2-rc.1 || 0.2.2-rc.3',
-    '@deepseek-ai/dsh-typert-protocol': '0.2.2-rc.1 || 0.2.2-rc.3',
+    '@deepseek-ai/dsh-agent-preset-registry': '0.2.2-rc.1 || 0.2.2-rc.3 || 0.2.3-alpha.2',
+    '@deepseek-ai/dsh-scope': '0.2.2-rc.1 || 0.2.2-rc.3 || 0.2.3-alpha.2',
+    '@deepseek-ai/dsh-client-ui-primitives': '0.2.2-rc.1 || 0.2.2-rc.3 || 0.2.3-alpha.2',
+    '@deepseek-ai/dsh-typert-protocol': '0.2.2-rc.1 || 0.2.2-rc.3 || 0.2.3-alpha.2',
   },
 }, 'candidate package metadata changed')
+// Comment lines are documentation; only the YAML rows define the bundle.
+const packedPatch = run('tar', ['-xOf', tarballPath, 'package/cordis.patch.yml'])
+  .replaceAll('\r\n', '\n')
+  .split('\n')
+  .filter(line => !line.trimStart().startsWith('#'))
+  .join('\n')
 assert.equal(
-  run('tar', ['-xOf', tarballPath, 'package/cordis.patch.yml']).replaceAll('\r\n', '\n'),
-  '- insert:\n    - id: run2skill\n      name: dsh-run2skill\n',
+  packedPatch,
+  "- insert:\n    - id: run2skill\n      name: '@duma520/dsh-run2skill'\n",
   'candidate bundle patch does not match the package identity',
 )
 // Scope tags must use the Host module's Symbol identity, not a bundled copy.
