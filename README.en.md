@@ -55,7 +55,17 @@ Run2Skill turns the corrections, constraints, and workflows you teach an Agent i
 
 This fork is **not distributed via npm**. It is mounted from a local directory with `link:`. Every step below was verified on 2026-11-25.
 
-1. **Make sure the plugin directory exists**: `G:\DSH\dsh-plugins\dsh-run2skill`, containing a built `lib\` folder (`client.js`, `index.js`, `index.d.ts`, `typert.host.js`, `typert.host.d.ts`, `typert.remote-client.js`, `typert.remote-client.d.ts`, `contract-BbysfJw-.js`).
+1. **Prepare the plugin directory**: on this machine it is `G:\DSH\dsh-plugins\dsh-run2skill`.
+
+   > **A fresh clone from GitHub has no `lib\`** — the repo ships source only and build output is in `.gitignore`. Build it once first:
+   > ```bash
+   > pnpm install
+   > pnpm run build
+   > ```
+   > That produces 8 files in `lib\`: `client.js`, `index.js`, `index.d.ts`, `typert.host.js`, `typert.host.d.ts`, `typert.remote-client.js`, `typert.remote-client.d.ts`, `contract-*.js`.
+   > Copying `version/20261125-v4/lib/` from the local backup directory works too — byte-identical.
+
+   Steps 2–6 below use `G:\DSH\dsh-plugins\dsh-run2skill`; replace that path everywhere if you installed elsewhere.
 2. **Register the dependency** in `C:\Users\duma520\.dsh\profiles\desktop\package.json`:
    ```json
    "@duma520/dsh-run2skill": "link:G:/DSH/dsh-plugins/dsh-run2skill"

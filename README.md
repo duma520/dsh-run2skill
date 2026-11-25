@@ -61,7 +61,18 @@ Run2Skill 把你在 DeepSeek Harness（DSH）里教给 Agent 的纠正、约束�
 
 本分叉**不走 npm**，用本地目录 + `link:` 挂载。装法如下（每一步都已在 2026-11-25 实测过）：
 
-1. **确认插件目录在位**：`G:\DSH\dsh-plugins\dsh-run2skill`，里面有 `lib\`（已构建好，8 个文件：`client.js`、`index.js`、`index.d.ts`、`typert.host.js`、`typert.host.d.ts`、`typert.remote-client.js`、`typert.remote-client.d.ts`、`contract-BbysfJw-.js`）。
+1. **准备插件目录**：本机路径是 `G:\DSH\dsh-plugins\dsh-run2skill`。
+
+   > **从 GitHub 克隆的话，`lib\` 不存在**（仓库只收源码，构建产物在 `.gitignore` 里）。先构建一次：
+   > ```bash
+   > pnpm install
+   > pnpm run build
+   > ```
+   > 成功后 `lib\` 会有 8 个文件：`client.js`、`index.js`、`index.d.ts`、`typert.host.js`、`typert.host.d.ts`、`typert.remote-client.js`、`typert.remote-client.d.ts`、`contract-*.js`。
+   > 从本机备份目录 `version/20261125-v4/lib/` 直接拷一份也可以，字节完全一致。
+
+   下面 2~6 步用的是 `G:\DSH\dsh-plugins\dsh-run2skill`；装在别处就把这个路径整体替换掉。
+
 2. **在 profile 里挂依赖**。编辑 `C:\Users\duma520\.dsh\profiles\desktop\package.json`，`dependencies` 加一行：
    ```json
    "@duma520/dsh-run2skill": "link:G:/DSH/dsh-plugins/dsh-run2skill"
