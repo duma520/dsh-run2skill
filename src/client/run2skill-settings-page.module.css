@@ -7,6 +7,18 @@
   color: var(--dsw-alias-label-primary);
   font-size: 14px;
   line-height: 1.6;
+  /*
+   * 宿主给的面板容器是有定高的，页面自己不声明高度与溢出时，超出的部分会被
+   * 直接裁掉（内容多到「待处理」列表一半时，下面就再也看不到、也滚不动）。
+   * 这里让根节点撑满父容器并自己纵向滚动。
+   * 父容器若没定高，height:100% 会退化成 auto，滚动交回外层，不会出现双滚动条。
+   */
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .muted {

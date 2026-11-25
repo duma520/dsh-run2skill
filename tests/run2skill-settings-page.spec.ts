@@ -1259,6 +1259,66 @@ describe('run2skill native settings surface', () => {
     expect(trigger).toBe(document.activeElement)
   })
 
+  it('folds auto-skipped failures into one summary row instead of one-card-one-button', async () => {
+    // 用户原话：「只有 1 个选项，那等于没有选择，那存在有什么意义呢？」
+    // 自动跳过（SESSION_TAIL_ADVANCED）没有可选项，就不该逐条伪装成待办。
+    const skippedA = `wi_${'4'.repeat(64)}`
+    const skippedB = `wi_${'5'.repeat(64)}`
+    const actionableId = `wi_${'6'.repeat(64)}`
+    const skippedItem = (workItemId: string, revision: number) => ({
+      workItemId, workItemRevision: revision,
+      createdAt: '2026-08-21T00:00:00.000Z', updatedAt: '2026-08-21T00:00:01.000Z',
+      failureCode: 'SESSION_TAIL_ADVANCED', retryable: false, attempt: 0, requestBudgetUsed: 0, calls: [],
+      attentionKind: 'PROCESSING_FAILURE', currentStage: 'COVERAGE',
+    })
+    const call = vi.fn(async (endpoint: string) => endpoint === 'learning/issues/list'
+      ? { ok: true, value: { apiVersion: 1, items: [
+          skippedItem(skippedA, 1),
+          skippedItem(skippedB, 2),
+          {
+            workItemId: actionableId, workItemRevision: 3,
+            createdAt: '2026-08-21T00:00:00.000Z', updatedAt: '2026-08-21T00:00:01.000Z',
+            failureCode: 'BASELINE_INCOMPLETE', retryable: false, attempt: 0, requestBudgetUsed: 0, calls: [],
+            attentionKind: 'SAFETY_STOP', currentStage: 'OWNERSHIP',
+          },
+        ] } }
+      : { ok: true, value: {} })
+    const dismissAction = (subjectId: string) => ({
+      actionKey: `act_${subjectId.slice(-1).repeat(64)}`,
+      subjectId,
+      kind: 'DISMISS_LEARNING' as const,
+      availableActions: ['DISMISS' as const],
+    })
+    const onAutoSkipped = vi.fn()
+    render(createElement(LearningFailureSection, {
+      call, active: true,
+      actions: [dismissAction(skippedA), dismissAction(skippedB), dismissAction(actionableId)],
+      onMutationSettled: vi.fn(),
+      onAutoSkipped,
+    }))
+
+    const section = await screen.findByRole('region', { name: '自动沉淀未继续' })
+    // 计数只报真正需要人决定的那一条
+    expect(section.textContent).toContain('自动沉淀未继续 · 1 项')
+    expect(section.textContent).toContain('2 次经验没有整理，这是正常的')
+    expect(section.textContent).toContain('不需要你做任何决定')
+    // 只剩真正待办那一张卡片带按钮
+    expect(screen.getAllByRole('button', { name: '不再处理这次经验' })).toHaveLength(1)
+    expect(screen.getByRole('button', { name: '知道了，收起这 2 条' })).toBeTruthy()
+    expect(onAutoSkipped).toHaveBeenCalledWith(2)
+
+    fireEvent.click(screen.getByRole('button', { name: '知道了，收起这 2 条' }))
+    await waitFor(() => {
+      const dismissals = call.mock.calls.filter(([endpoint]) => endpoint === 'learning/issues/dismiss')
+      expect(dismissals).toHaveLength(2)
+    })
+    // 收起后自动跳过汇总行消失，真正待办那张卡片仍在
+    await waitFor(() => {
+      expect(screen.queryByText('2 次经验没有整理，这是正常的')).toBeNull()
+    })
+    expect(screen.getByRole('button', { name: '不再处理这次经验' })).toBeTruthy()
+  })
+
   it('gives Learning dismiss the same focus trap, escape, and trigger restoration', async () => {
     const workItemId = `wi_${'c'.repeat(64)}`
     const call = vi.fn(async (endpoint: string) => endpoint === 'learning/issues/list'

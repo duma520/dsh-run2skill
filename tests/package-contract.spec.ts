@@ -35,7 +35,7 @@ describe('published package contract', () => {
   it('pins the public 0.6 alpha identity and portable repository metadata', () => {
     expect(manifest).toMatchObject({
       name: '@duma520/dsh-run2skill',
-      version: '1.3.0',
+      version: '1.4.0',
       description: 'Turn explicit DSH session experience into reviewable native Skills',
       keywords: [
         'deepseek-harness',
@@ -80,10 +80,10 @@ describe('published package contract', () => {
     ])
     expect(manifest.peerDependencies).toEqual({
       '@deepseek-ai/cordis': '4.1.0',
-      '@deepseek-ai/dsh-agent-preset-registry': '0.2.2-rc.1 || 0.2.2-rc.3 || 0.2.3-alpha.2',
-      '@deepseek-ai/dsh-scope': '0.2.2-rc.1 || 0.2.2-rc.3 || 0.2.3-alpha.2',
-      '@deepseek-ai/dsh-client-ui-primitives': '0.2.2-rc.1 || 0.2.2-rc.3 || 0.2.3-alpha.2',
-      '@deepseek-ai/dsh-typert-protocol': '0.2.2-rc.1 || 0.2.2-rc.3 || 0.2.3-alpha.2',
+      '@deepseek-ai/dsh-agent-preset-registry': '>=0.2.2-rc.1',
+      '@deepseek-ai/dsh-scope': '>=0.2.2-rc.1',
+      '@deepseek-ai/dsh-client-ui-primitives': '>=0.2.2-rc.1',
+      '@deepseek-ai/dsh-typert-protocol': '>=0.2.2-rc.1',
     })
     expect(manifest.dsh).toEqual({
       bundle: { patch: './cordis.patch.yml' },

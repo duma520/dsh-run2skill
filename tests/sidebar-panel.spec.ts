@@ -70,7 +70,30 @@ describe('run2skill sidebar panel entry', () => {
 
     expect(dispose).toBeTypeOf('function')
     expect(warn).toHaveBeenCalled()
-    expect(String(warn.mock.calls[0]?.[0])).toContain('侧栏入口注册失败')
+    // 告警必须点名是哪个槽位失败，否则用户只看到「侧栏没出现」却无从定位
+    expect(String(warn.mock.calls[0]?.[0])).toContain('槽位 main 注册失败')
+    warn.mockRestore()
+  })
+
+  it('keeps the sidebar row when only the main panel fails to register', () => {
+    // 回归：三个槽位曾经共用一个 try/catch，main 一抛错，sidebar.panellist 就永远
+    // 轮不到注册 —— 界面上表现为「设置页正常、左侧栏没有这一行」，且原因只在一条
+    // 看不见的 console.warn 里。
+    const { page, registered } = makePage()
+    const realInject = page.slots.inject
+    page.slots.inject = (name: string, install: () => unknown) => {
+      if (name === 'main') throw new Error('main slot unavailable')
+      return realInject(name, install)
+    }
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const inject = (_deps: readonly string[], install: (p: unknown) => unknown) => install(page)
+
+    installRun2skillPanel(inject as never, () => createElement('div'))
+
+    expect(registered.map(item => item.name)).toEqual([
+      'sidebar.panellist', 'plugins.detail.actions',
+    ])
+    expect(String(warn.mock.calls[0]?.[0])).toContain('槽位 main 注册失败')
     warn.mockRestore()
   })
 

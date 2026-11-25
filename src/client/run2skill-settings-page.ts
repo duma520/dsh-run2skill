@@ -674,6 +674,17 @@ function learningIssueDescription(item: LearningIssue): { readonly title: string
   }
 }
 
+/**
+ * 这些失败码代表「系统按设计自动跳过」，没有任何需要用户决定的事。
+ *
+ * 它们此前被当成「待处理」逐条列出，每张卡片上只有一个「不再处理这次经验」按钮 ——
+ * 用户的原话是「只有 1 个选项等于没有选择」。既然没有选项，就不该伪装成一个选择。
+ */
+const AUTO_SKIPPED_FAILURES: ReadonlySet<string> = new Set([
+  'SESSION_TAIL_ADVANCED',
+  'SESSION_CHANGED_DURING_CHECK',
+])
+
 function describeStageSummary(stages: NonNullable<LearningIssue['stages']>): string {
   const stopped = stages.find(stage => stage.state === 'STOPPED')
   if (stopped !== undefined) return `停在了「${learningStageLabels[stopped.stage]}」这一步，后面的步骤没有开始。`
@@ -936,11 +947,14 @@ export function LearningFailureSection(props: {
   readonly actions: readonly AttentionAction[]
   readonly onMutationSettled: () => void
   readonly scopeGeneration?: number
+  /** 上报「被自动跳过」的条数，供上层的「N 项待处理」按真实待办数显示。 */
+  readonly onAutoSkipped?: (count: number) => void
 }): ReactElement {
   const [phase, setPhase] = useState<'IDLE' | 'LOADING' | 'READY' | 'ERROR'>('IDLE')
   const [items, setItems] = useState<readonly LearningIssue[]>([])
   const [refreshGeneration, setRefreshGeneration] = useState(0)
   const [pending, setPending] = useState<string>()
+  const [batchPending, setBatchPending] = useState(false)
   const [dismiss, setDismiss] = useState<LearningIssue>()
   const dismissTriggerRef = useRef<HTMLButtonElement | null>(null)
   const learningActions = useMemo(() => new Map(props.actions.flatMap(action => (
@@ -1019,21 +1033,91 @@ export function LearningFailureSection(props: {
       props.onMutationSettled()
     }).catch(() => { setPhase('ERROR') }).finally(() => { setPending(undefined) })
   }
+  /** 自动跳过的一类：系统按设计停下，没有可选项。 */
+  const skipped = items.filter(item => AUTO_SKIPPED_FAILURES.has(item.failureCode))
+  /** 真正需要用户点一下（确认或重试）的一类。 */
+  const actionable = items.filter(item => !AUTO_SKIPPED_FAILURES.has(item.failureCode))
+
+  /**
+   * 一键收起全部自动跳过的条目。
+   *
+   * 逐条串行调用、失败不中断其余：任何一条被后端拒绝（ACTION_STALE 等）都不该
+   * 让用户点一次只收起一半却看不到原因。
+   */
+  const acknowledgeSkipped = (): void => {
+    if (batchPending || pending !== undefined) return
+    setBatchPending(true)
+    void (async () => {
+      let failed = 0
+      for (const item of skipped) {
+        const selected = learningActions.get(item.workItemId)
+        if (selected?.subjectId === undefined || selected.kind === undefined) continue
+        try {
+          const result = await props.call('learning/issues/dismiss', {
+            apiVersion: 1,
+            workItemId: item.workItemId,
+            workItemRevision: item.workItemRevision,
+            currentScope: currentScope(props.workspaceId, props.scopeGeneration ?? 1),
+            action: {
+              actionKey: selected.actionKey,
+              subjectId: selected.subjectId,
+              kind: selected.kind,
+              ...(selected.proposalRef === undefined ? {} : { proposalRef: selected.proposalRef }),
+            },
+            confirm: true,
+          }, new AbortController().signal)
+          if (result === null || typeof result !== 'object' || !('ok' in result) || result.ok !== true) {
+            failed += 1
+            continue
+          }
+          setItems(current => current.filter(candidate => candidate.workItemId !== item.workItemId))
+        } catch {
+          failed += 1
+        }
+      }
+      props.onMutationSettled()
+      if (failed > 0) setPhase('ERROR')
+    })().finally(() => { setBatchPending(false) })
+  }
+
+  useEffect(() => {
+    if (props.onAutoSkipped === undefined) return
+    props.onAutoSkipped(learningActions.size === 0 ? 0 : skipped.length)
+  }, [learningActions.size, props.onAutoSkipped, skipped.length])
+
   if (learningActions.size === 0) return createElement(Fragment)
   return createElement('section', { className: css.attentionGroup, 'aria-label': '自动沉淀未继续' },
     createElement('div', { className: css.toolbar },
-      createElement('strong', null, `自动沉淀未继续 · ${String(learningActions.size)} 项`),
+      createElement('strong', null, actionable.length === 0
+        ? '自动沉淀未继续'
+        : `自动沉淀未继续 · ${String(actionable.length)} 项`),
       createElement(Button, {
         variant: 'outline',
         size: 'sm',
         icon: createElement(IconRefreshOutlineMedium),
-        disabled: !props.active || pending !== undefined,
+        disabled: !props.active || pending !== undefined || batchPending,
         onClick: () => { setRefreshGeneration(value => value + 1) },
       }, '刷新详情'),
     ),
     phase === 'LOADING' ? createElement('p', { role: 'status' }, '正在加载自动沉淀详情…') : null,
     phase === 'ERROR' ? createElement('p', { role: 'alert' }, '自动沉淀详情暂不可用，请保持 DSH 运行并稍后重试。') : null,
-    ...items.map(item => {
+    skipped.length === 0
+      ? null
+      : createElement('div', { className: css.detail, 'data-run2skill-auto-skipped': true },
+          createElement('strong', null, `${String(skipped.length)} 次经验没有整理，这是正常的`),
+          createElement('p', null,
+            '你在那段对话之后又继续说了话，系统担心拿旧内容做 Skill 不准确，就自动停下了。'
+            + '不需要你做任何决定，已有 Skill、会话记录和日志都没有受影响。'
+            + '想整理的话，在当前对话里重新说明一遍做法，等这一轮结束后会重新记录一次。'),
+          createElement('div', { className: css.actions },
+            createElement(Button, {
+              variant: 'outline',
+              disabled: batchPending || pending !== undefined,
+              onClick: () => { acknowledgeSkipped() },
+            }, batchPending ? '正在收起…' : `知道了，收起这 ${String(skipped.length)} 条`),
+          ),
+        ),
+    ...actionable.map(item => {
       const action = learningActions.get(item.workItemId)
       const busy = pending === item.workItemId
       const isCoverageConfirmation = item.failureCode === 'COVERED_NEEDS_CONFIRMATION'
@@ -1233,6 +1317,14 @@ export function AttentionSettingsSummary(props: {
   readonly callAttention: AttentionCall
   readonly refreshGeneration: number
   readonly onProjection: (value: AttentionProjection | undefined) => void
+  /**
+   * 其中有多少条属于「系统自动跳过、没有可选项」。
+   *
+   * 它们也出现在 `actions` 里（带一个 DISMISS），所以直接显示 `actions.length`
+   * 会让用户看到「5 项可操作事项」却只有「不再处理」一个按钮 —— 这次就是被这么问的。
+   * 计数只报真正需要用户决定的那部分。
+   */
+  readonly autoSkipped?: number
 }): ReactElement {
   const [state, setState] = useState<
     { readonly phase: 'LOADING' | 'READY' | 'UNAVAILABLE'; readonly value?: AttentionProjection }
@@ -1311,7 +1403,12 @@ export function AttentionSettingsSummary(props: {
   ) return createElement(Fragment)
   return createElement('div', { className: css.toolbar },
     createElement(Fragment, null,
-      createElement(Pill, null, `${String(value.actions.length)} 项可操作事项`),
+      createElement(Pill, null, (() => {
+        const skipped = Math.min(props.autoSkipped ?? 0, value.actions.length)
+        const remaining = value.actions.length - skipped
+        if (skipped > 0 && remaining === 0) return '没有需要你决定的事项'
+        return `${String(remaining)} 项可操作事项`
+      })()),
       value.projectCompleteness === 'UNAVAILABLE'
         ? createElement(Pill, null, '未选择当前项目')
         : value.projectCompleteness === 'UNKNOWN'
@@ -1357,6 +1454,7 @@ export function Run2skillSettingsPage(props: {
   const hostTab = useHostTabVisibility()
   const [attention, setAttention] = useState<AttentionProjection>()
   const [attentionRefresh, setAttentionRefresh] = useState(0)
+  const [autoSkipped, setAutoSkipped] = useState(0)
   const [scopeGeneration, setScopeGeneration] = useState(1)
   const [publicationFeedback, setPublicationFeedback] = useState<{
     readonly scopeIdentity: string
@@ -1379,6 +1477,7 @@ export function Run2skillSettingsPage(props: {
   }, [sessionId, workspaceId, purgeState.hostDataEpoch, purgeDataChanging])
   useEffect(() => {
     setAttention(undefined)
+    setAutoSkipped(0)
     setScopeGeneration(value => value + 1)
   }, [sessionId, workspaceId])
   const attentionEmpty = attention !== undefined
@@ -1442,6 +1541,7 @@ export function Run2skillSettingsPage(props: {
           callAttention: props.callAttention,
           refreshGeneration: attentionRefresh,
           onProjection: setAttention,
+          autoSkipped,
         }),
         attention?.actions.some(action => ['REVIEW_PROPOSAL', 'REFRESH_PROPOSAL', 'RETRY_PUBLICATION'].includes(action.kind ?? '')) === true
           ? createElement(ProposalSettingsSection, {
@@ -1465,6 +1565,7 @@ export function Run2skillSettingsPage(props: {
           active: hostTab.visible && open.has('attention'),
           actions: attention?.actions ?? [],
           onMutationSettled: () => { setAttentionRefresh(value => value + 1) },
+          onAutoSkipped: setAutoSkipped,
           scopeGeneration,
         }),
         attentionEmpty ? createElement('p', { className: css.empty }, '暂无') : null,

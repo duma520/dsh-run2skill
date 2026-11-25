@@ -99,31 +99,45 @@ export function installRun2skillPanel(
       const page = raw as LayoutPageContext | undefined
       if (page === undefined || typeof page.slots?.inject !== 'function') return () => undefined
       const stops: unknown[] = []
-      try {
-        collect(stops, page.slots.inject('main', () => page.slots.register({
-          name: 'main',
-          key: RUN2SKILL_PANEL_ID,
-        }, () => renderPanel())))
 
-        collect(stops, page.slots.inject('sidebar.panellist', () => page.slots.register({
-          name: 'sidebar.panellist',
-          id: RUN2SKILL_PANEL_ID,
-          order: 44,
-          label: () => PANEL_LABEL,
-        }, Run2skillSidebarIcon)))
-
-        collect(stops, page.slots.inject('plugins.detail.actions', () => page.slots.register({
-          name: 'plugins.detail.actions',
-          id: `${RUN2SKILL_PANEL_ID}-open`,
-          order: 24,
-          inject: () => ({
-            packageName: '@duma520/dsh-run2skill',
-            onOpen: () => { page.layout?.selectPanel?.(RUN2SKILL_PANEL_ID) },
-          }),
-        }, OpenPanelAction)))
-      } catch (error) {
-        warn(error)
+      /**
+       * 每个槽位各自 try/catch。
+       *
+       * 早先三个槽位共用一个 try/catch，结果是只要 `main` 那一次注册抛错，
+       * 后面的 `sidebar.panellist` 就永远轮不到注册 —— 界面上表现为「设置页一切正常，
+       * 但左侧栏没有这一行」，而失败原因只留在一条看不见的 console.warn 里。
+       * 现在每个槽位单独兜住，并在告警里点名是哪个槽位失败。
+       */
+      const slot = (name: string, install: () => unknown): void => {
+        try {
+          collect(stops, install())
+        } catch (error) {
+          warnSlot(name, error)
+        }
       }
+
+      slot('main', () => page.slots.inject('main', () => page.slots.register({
+        name: 'main',
+        key: RUN2SKILL_PANEL_ID,
+      }, () => renderPanel())))
+
+      slot('sidebar.panellist', () => page.slots.inject('sidebar.panellist', () => page.slots.register({
+        name: 'sidebar.panellist',
+        id: RUN2SKILL_PANEL_ID,
+        order: 44,
+        label: () => PANEL_LABEL,
+      }, Run2skillSidebarIcon)))
+
+      slot('plugins.detail.actions', () => page.slots.inject('plugins.detail.actions', () => page.slots.register({
+        name: 'plugins.detail.actions',
+        id: `${RUN2SKILL_PANEL_ID}-open`,
+        order: 24,
+        inject: () => ({
+          packageName: '@duma520/dsh-run2skill',
+          onOpen: () => { page.layout?.selectPanel?.(RUN2SKILL_PANEL_ID) },
+        }),
+      }, OpenPanelAction)))
+
       return () => {
         for (const stop of stops) {
           try {
@@ -145,4 +159,11 @@ function warn(error: unknown): void {
   if (typeof console === 'undefined' || typeof console.warn !== 'function') return
   const message = error instanceof Error ? error.message : String(error)
   console.warn(`[run2skill] 侧栏入口注册失败，已跳过：${message}`)
+}
+
+/** 逐槽位失败告警：点名是哪个槽位挂了，方便对着控制台定位。 */
+function warnSlot(slotName: string, error: unknown): void {
+  if (typeof console === 'undefined' || typeof console.warn !== 'function') return
+  const message = error instanceof Error ? error.message : String(error)
+  console.warn(`[run2skill] 槽位 ${slotName} 注册失败，已跳过该入口：${message}`)
 }

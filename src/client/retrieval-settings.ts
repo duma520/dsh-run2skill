@@ -103,6 +103,9 @@ export function RetrievalSettingsSection({ controller }: { readonly controller: 
     }),
   )
   return createElement('section', { 'data-run2skill-retrieval': true },
+    createElement('p', null,
+      '这一项决定「去找已有 Skill」时是逐页翻摘要，还是先用向量检索缩小范围。'
+      + '默认关闭就行；只有你自己搭了向量服务，打开才有意义。'),
     createElement('label', null,
       createElement('input', {
         type: 'checkbox', checked: settings.advancedRecall, disabled,
@@ -110,8 +113,11 @@ export function RetrievalSettingsSection({ controller }: { readonly controller: 
       }), '高级召回',
     ),
     createElement('p', null, settings.advancedRecall
-      ? '使用关键词与语义检索筛选相关技能，再检查正文覆盖关系。服务不可用时自动恢复标准召回。'
-      : '当前使用标准召回：逐页检查技能摘要，无需额外模型服务。'),
+      ? '已打开。现在会先算语义向量筛出相关技能，再逐条核对正文覆盖关系，比逐页翻摘要更准；'
+        + '但它要连上你自己的 Embedding 服务（下面填地址）。连不上时会自动退回标准召回，不会让整理流程失败。'
+      : '已关闭（推荐保持关闭）。现在是标准召回：逐页检查每个 Skill 的摘要做匹配，'
+        + '全部在本机完成，不需要任何额外模型服务，也不产生额外费用；Skill 在几十个以内完全够用。'
+        + '只有 Skill 多到几百个、逐页翻明显变慢时，才值得打开下面的向量检索。'),
     settings.advancedRecall ? createElement('div', null,
       createElement('h4', null, '向量模型'),
       field('embeddingEndpoint', 'Embedding 接口地址', 'https://example.com/v1/embeddings'),
@@ -129,6 +135,10 @@ export function RetrievalSettingsSection({ controller }: { readonly controller: 
         field('rerankerApiKeyEnv', 'Reranker 凭证环境变量名', 'RUN2SKILL_RERANKER_KEY'),
       ) : null,
       createElement('p', null, '首次检索时建立持久化向量索引，后续仅更新变化的技能；关闭开关保留索引，清除学习数据时一并删除。'),
+      createElement('p', null,
+        '填好地址后可以回上面的「需要处理」点一次刷新试一下：连得上就会正常检索，'
+        + '连不上会自动退回标准召回，不会报错、也不会中断整理。'
+        + '凭证那里只写运行 DSH 那台机器上的环境变量名，密钥本身不要填进来。'),
     ) : null,
     state.error ? createElement('p', { role: 'status' }, '设置未保存，请重试。') : null,
   )
