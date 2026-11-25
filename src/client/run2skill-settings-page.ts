@@ -50,6 +50,7 @@ import { focusableSelector, trapDialogTab } from './dialog-focus.js'
 import { PurgeSettingsController, PurgeSettingsSection, type PurgeCall } from './purge-settings.js'
 import css from './run2skill-settings-page.module.css'
 import { acquireRun2skillStyle } from './style-lifecycle.js'
+import { installRun2skillPanel } from './sidebar-panel.js'
 
 export interface AttentionAction {
   readonly actionKey: string
@@ -233,11 +234,12 @@ export function LearningStatusSection(props: {
   }
   const disabled = !props.active || state.phase !== 'READY' || !state.value.canRequest || submitting
   const statusText = props.sessionId === undefined
-    ? '请先打开一个会话。'
+    ? '请先在左边的会话列表里打开一个会话，这里才有内容可整理。'
     : state.phase === 'LOADING'
       ? '正在读取整理状态…'
       : state.phase === 'ERROR'
-        ? '整理状态暂不可用，请刷新后重试。'
+        ? '读不到这个会话的整理状态：多半是当前项目与记录的归属对不上，或插件刚重启还在恢复历史。'
+          + '可以点右边的刷新按钮重试；一直不行就重启一次 DSH。'
         : learningStatusCopy[state.value.state]
   return createElement('div', { className: css.sectionBody },
     createElement('div', { className: css.learningStatusRow },
@@ -604,6 +606,12 @@ const learningStageLabels: Record<NonNullable<LearningIssue['currentStage']>, st
 }
 
 function learningIssueDescription(item: LearningIssue): { readonly title: string; readonly detail: string } {
+  if (item.failureCode === 'SESSION_TAIL_ADVANCED') return {
+    title: '这次经验先不整理了',
+    detail: '你在那段对话之后又继续说了话，系统担心拿旧内容做 Skill 会不准确，所以停下来等你决定。'
+      + '这不是出错，已有 Skill、会话记录和日志都没有受影响。想整理的话，在当前对话里重新说明一遍做法，'
+      + '等这一轮结束后会自动重新记录。',
+  }
   if (item.failureCode === 'CATALOG_SCAN_TEMPORARY_FAILED') return {
     title: '已有 Skill 检索暂时失败',
     detail: item.retryable
@@ -611,8 +619,9 @@ function learningIssueDescription(item: LearningIssue): { readonly title: string
       : '本次检索已停止。已完成的检测和失败信息已保留。',
   }
   if (item.failureCode === 'BASELINE_INCOMPLETE') return {
-    title: '自动沉淀已停止',
-    detail: '缺少任务开始前的 Skill 状态记录，无法确认 Agent 是否已经保存过同类 Skill。为避免重复生成，本次已停止。已有 Skill 和原始会话记录不受影响。',
+    title: '需要你确认是否已经保存过',
+    detail: '系统缺少这段对话开始前的 Skill 清单，因此不能确定 Agent 是否已经保存过同类 Skill。'
+      + '为了不重复生成，这次先停在等你确认。已有 Skill 和会话记录不受影响。',
   }
   if (item.failureCode === 'MODEL_TERMINAL_FAILURE') return {
     title: '自动沉淀未完成',
@@ -659,9 +668,18 @@ function learningIssueDescription(item: LearningIssue): { readonly title: string
     detail: '系统无法确认继续处理是否安全，因此本次自动沉淀已停止。已有 Skill 和原始会话记录不受影响。',
   }
   return {
-    title: '自动沉淀未完成',
-    detail: '处理过程中出现问题，本次自动沉淀未能继续。已有 Skill 和原始会话记录不受影响。',
+    title: '这次没有整理出 Skill',
+    detail: '系统在处理过程中停下了，没有继续往下做。'
+      + '已有 Skill、会话记录和日志都没有受影响；如果还想整理，可以在当前对话里重新说明一遍做法。',
   }
+}
+
+function describeStageSummary(stages: NonNullable<LearningIssue['stages']>): string {
+  const stopped = stages.find(stage => stage.state === 'STOPPED')
+  if (stopped !== undefined) return `停在了「${learningStageLabels[stopped.stage]}」这一步，后面的步骤没有开始。`
+  const completed = stages.filter(stage => stage.state === 'COMPLETED').length
+  if (completed === stages.length) return `${String(stages.length)} 个步骤全部完成。`
+  return `已完成 ${String(completed)} 个步骤，其余步骤尚未开始。`
 }
 
 function stageDescription(stage: NonNullable<LearningIssue['stages']>[number]): string {
@@ -1030,14 +1048,19 @@ export function LearningFailureSection(props: {
         createElement('p', null, description.detail),
         item.stages === undefined
           ? item.calls.length === 0 ? null : createElement('p', null, `已记录模型调用 ${String(item.calls.length)} 次`)
-          : createElement('div', null,
-              ...item.stages.map(stage => createElement('p', { key: stage.stage }, stageDescription(stage))),
-            ),
-        item.modelRoute === undefined
+          : createElement('p', { className: css.muted }, describeStageSummary(item.stages)),
+        item.modelRoute === undefined && item.stages === undefined
           ? null
           : createElement('details', { className: css.technicalDetails },
               createElement('summary', null, '本次处理的技术信息'),
-              createElement('p', null, `使用的模型：${item.modelRoute.model}（${item.modelRoute.provider}）`),
+              item.modelRoute === undefined
+                ? null
+                : createElement('p', null, `使用的模型：${item.modelRoute.model}（${item.modelRoute.provider}）`),
+              item.stages === undefined
+                ? null
+                : createElement('div', null,
+                    ...item.stages.map(stage => createElement('p', { key: stage.stage }, stageDescription(stage))),
+                  ),
             ),
         createElement('div', { className: css.actions },
           action?.availableActions?.includes('RETRY') === true
@@ -1058,7 +1081,7 @@ export function LearningFailureSection(props: {
                   dismissTriggerRef.current = event.currentTarget
                   setDismiss(item)
                 },
-              }, isCoverageConfirmation ? '使用已有 Skill，不生成草稿' : '关闭此事项')
+              }, isCoverageConfirmation ? '使用已有 Skill，不生成草稿' : '不再处理这次经验')
             : null,
         ),
       )
@@ -1067,14 +1090,15 @@ export function LearningFailureSection(props: {
       open: dismiss !== undefined,
       title: dismiss?.failureCode === 'COVERED_NEEDS_CONFIRMATION'
         ? '使用已有 Skill，不生成新草稿？'
-        : '确认关闭此待处理事项？',
+        : '不再处理这次经验？',
       description: dismiss?.failureCode === 'COVERED_NEEDS_CONFIRMATION'
         ? '移除此待处理项，继续使用已有 Skill。'
-        : '结束本次整理，保留已有 Skill 和会话记录。',
+        : '只会把这条待处理事项从列表里移除。已有 Skill、会话记录和日志都不会被删除，'
+          + '以后想再整理，重新说明一遍做法即可。',
       disabled: pending !== undefined,
       triggerRef: dismissTriggerRef,
       onClose: () => { setDismiss(undefined) },
-      confirmLabel: dismiss?.failureCode === 'COVERED_NEEDS_CONFIRMATION' ? '使用已有 Skill' : '确认关闭',
+      confirmLabel: dismiss?.failureCode === 'COVERED_NEEDS_CONFIRMATION' ? '使用已有 Skill' : '不再处理',
       onConfirm: () => {
         const selected = dismiss
         setDismiss(undefined)
@@ -1555,21 +1579,37 @@ export async function applyRun2skillClient(context: Run2skillClientContext): Pro
     }
   }, 'run2skill: native plugin detail surface')
 
-  context.slots.inject('plugins.bundle.config', () => context.slots.register({
-    name: 'plugins.bundle.config',
-    key: '@duma520/dsh-run2skill',
-    inject: () => ({
+  /**
+   * 插件详情页与左侧栏面板渲染同一套内容，参数在这里构造一次，避免两处漂移。
+   * workspaceId / sessionId 只在解析出来时才带上：宿主 props 是 exactOptionalPropertyTypes。
+   */
+  const pageProps = () => {
+    const sessionId = currentSessionId(context)
+    const workspaceId = workspaceFor(context, sessionId)
+    return {
       controller,
       purgeController,
-      workspaceId: workspaceFor(context, currentSessionId(context)),
-      sessionId: currentSessionId(context),
+      ...(workspaceId === undefined ? {} : { workspaceId }),
+      ...(sessionId === undefined ? {} : { sessionId }),
       callAttention,
       callReview,
       callActivity,
       callRecallTelemetry,
       callLearningStatus,
-    }),
+    }
+  }
+
+  context.slots.inject('plugins.bundle.config', () => context.slots.register({
+    name: 'plugins.bundle.config',
+    key: '@duma520/dsh-run2skill',
+    inject: pageProps,
   }, Run2skillSettingsPage))
+
+  // 左侧栏「技能沉淀」入口 + main 面板 + 插件详情页按钮；失败只丢入口，不影响设置页。
+  context.effect(
+    () => installRun2skillPanel(context.inject, () => createElement(Run2skillSettingsPage, pageProps())),
+    'run2skill: 左侧栏面板入口',
+  )
 
   context.slots.inject('conversation.session.header.actions', () => context.slots.register({
     name: 'conversation.session.header.actions',

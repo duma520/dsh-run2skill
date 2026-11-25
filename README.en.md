@@ -5,12 +5,12 @@
 <p align="center"><strong>Turn today's lessons into tomorrow's skills.</strong></p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.2.3-247C78" alt="version 1.2.3" />
+  <img src="https://img.shields.io/badge/version-1.3.0-247C78" alt="version 1.3.0" />
   <img src="https://img.shields.io/badge/DSH-0.2.3--alpha.2%20%7C%200.2.2--rc.3%20%7C%200.2.2--rc.1-153B3C" alt="Supports DSH 0.2.3-alpha.2, 0.2.2-rc.3 and 0.2.2-rc.1" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-EAB45C" alt="MIT license" /></a>
 </p>
 
-> **This is the duma520 fork (`@duma520/dsh-run2skill` v1.2.3).**
+> **This is the duma520 fork (`@duma520/dsh-run2skill` v1.3.0).**
 >
 > Upstream: [qkycir-123/dsh-run2skill](https://github.com/qkycir-123/dsh-run2skill) v1.0.0.
 >
@@ -79,7 +79,7 @@ This fork is **not distributed via npm**. It is mounted from a local directory w
 5. **Edit `cordis.patch.yml`**: in the `- id: run2skill` block set `name` to `"@duma520/dsh-run2skill"` — **the quotes are mandatory**, because a bare scalar starting with `@` is invalid YAML.
 6. **Quit the DSH desktop app completely and restart it.** The bundle manifest and client modules are assembled only at boot; hot reload does not apply them.
 
-After restart, the **Plugins** page should list `dsh-run2skill` at version `1.2.3` with no red incompatibility banner.
+After restart, the **Plugins** page should list `dsh-run2skill` at version `1.3.0` with no red incompatibility banner.
 
 ### Why the `dsh plugin` CLI cannot be used here
 
@@ -135,6 +135,35 @@ Each draft includes its source conversation. Approve it, request changes, or dis
 - **Clear all caches**: preview and clear pending drafts and intermediate data, keeping saved Skills, conversations, and DSH settings.
 
 Run2Skill manages drafts locally and sends selected, redacted conversation excerpts to the current model. See [Storage and upgrades](docs/storage-and-upgrades.md).
+
+## Sidebar entry (since 1.3.0)
+
+Once enabled, the left navigation gains a **Skill distillery** row (below **Turn notifications**). Clicking it opens this plugin's full-page panel, identical to the configuration area on the plugin detail page.
+
+| Where | What it looks like | What it does |
+| --- | --- | --- |
+| Left navigation | A row labelled **Skill distillery** with a ✨ icon | Switches to the full-page panel |
+| Plugin detail page | An **Open Skill distillery** button | Same |
+| Main panel | Full-page UI | Run state, pending items, recent activity, skill usage, settings |
+
+If the row does not appear, the host is older and has no `layout` service; sidebar registration is skipped on purpose (the settings page and detail page still work). Use **Plugins → dsh-run2skill → Configure** instead.
+
+## What the pending items mean (copy rewritten in 1.3.0)
+
+Every row under **Needs attention** is **one experience that could not be distilled automatically**. It is not a crash, and it does not touch existing Skills or session logs. Two cases cover almost everything:
+
+| Title on screen | What actually happened | What to do |
+| --- | --- | --- |
+| This experience is left alone for now | You kept talking after that stretch, so distilling from the old tail could be inaccurate and the plugin stopped | Nothing; restate the practice later if you still want it |
+| Needs your confirmation whether it was already saved | The Skill list from before that conversation is missing, so the plugin cannot tell whether the same Skill already exists | Click **Do not process this experience**, or restate it |
+
+Each card also carries a **one-line progress summary** (e.g. `Stopped at "duplicate-save check"; later steps never started.`) and a collapsible **technical details** block with the per-stage state and the model used.
+
+Buttons:
+
+- **Do not process this experience**: removes the row from the list only. Existing Skills, session logs and plugin logs are **not deleted**.
+- **Retry the lookup once**: only shown when the catalog scan failed temporarily.
+- **Use the existing Skill, skip the draft**: only shown when a duplicate is suspected.
 
 ## What 1.2.0 adds
 
@@ -204,6 +233,7 @@ For Web, replace `desktop` with `web`. Saved Skills and plugin data remain after
 | Version | Date | Change |
 | --- | --- | --- |
 | 1.2.1 | 2026-11-25 | Fix: one truncated Session log made recovery retry forever; also log health codes and recovery failure causes, and cache the historical Session hydration |
+| 1.3.0 | 2026-11-26 | Adds a left sidebar "Skill distillery" entry; rewrites the pending-item copy into plain language instead of the old catch-all sentence |
 | 1.2.3 | 2026-11-26 | Fix CI: log rotation only applies to regular files (cross-platform), boundary spec neutralises event literals, candidate verification tracks the fork identity |
 | 1.2.2 | 2026-11-25 | Fix: the event allow-list was missing 24 DSH 0.2.3 types, so recovery stayed DEGRADED; unprojectable Sessions are now skipped instead of aborting the batch |
 | 1.2.0 | 2026-11-25 | Added four capabilities: own file log, runtime generation self-check, skill recall telemetry, publication history snapshots |

@@ -98,9 +98,9 @@ describe('run2skill native settings surface', () => {
       sessionId: 'session-b', currentScope: expect.objectContaining({ workspaceId: 'workspace-b' }),
     }), expect.any(AbortSignal)))
     view.rerender(element('session-a', true))
-    expect(await screen.findByText('请先打开一个会话。')).toBeTruthy()
+    expect(await screen.findByText('请先在左边的会话列表里打开一个会话，这里才有内容可整理。')).toBeTruthy()
     view.rerender(element(undefined))
-    expect(screen.getByText('请先打开一个会话。')).toBeTruthy()
+    expect(screen.getByText('请先在左边的会话列表里打开一个会话，这里才有内容可整理。')).toBeTruthy()
     await waitFor(() => expect(attention.mock.calls.at(-1)?.[0]).toMatchObject({ currentScope: { kind: 'USER_ONLY' } }))
     purge.dispose(); automatic.dispose()
   })
@@ -170,7 +170,7 @@ describe('run2skill native settings surface', () => {
       sessionId: 'session-a', active: true, call,
     }))
 
-    expect((await screen.findByRole('alert')).textContent).toBe('整理状态暂不可用，请刷新后重试。')
+    expect((await screen.findByRole('alert')).textContent).toBe('读不到这个会话的整理状态：多半是当前项目与记录的归属对不上，或插件刚重启还在恢复历史。可以点右边的刷新按钮重试；一直不行就重启一次 DSH。')
     expect(screen.getByRole('button', { name: '立即整理本次经验' }).hasAttribute('disabled')).toBe(true)
     const refresh = screen.getByRole('button', { name: '刷新整理状态' })
     refresh.focus()
@@ -1168,10 +1168,10 @@ describe('run2skill native settings surface', () => {
     }))
 
     const section = await screen.findByRole('region', { name: '自动沉淀未继续' })
-    expect(section.textContent).toContain('自动沉淀已停止')
-    expect(section.textContent).toContain('缺少任务开始前的 Skill 状态记录')
+    expect(section.textContent).toContain('需要你确认是否已经保存过')
+    expect(section.textContent).toContain('系统缺少这段对话开始前的 Skill 清单')
     expect(section.textContent).toContain('语义检测：已完成（模型调用 1 次，成功 1 次）')
-    expect(section.textContent).toContain('重复保存检查：未完成')
+    expect(section.textContent).toContain('停在了「重复保存检查」这一步')
     expect(section.textContent).toContain('已有 Skill 检索：未开始')
     expect(section.textContent).toContain('Skill 草稿生成：未开始')
     expect(section.textContent).not.toContain('BASELINE_INCOMPLETE')
@@ -1277,10 +1277,10 @@ describe('run2skill native settings surface', () => {
       }],
       onMutationSettled: vi.fn(),
     }))
-    const trigger = await screen.findByRole('button', { name: '关闭此事项' })
+    const trigger = await screen.findByRole('button', { name: '不再处理这次经验' })
     trigger.focus()
     fireEvent.click(trigger)
-    const dialog = await screen.findByRole('dialog', { name: '确认关闭此待处理事项？' })
+    const dialog = await screen.findByRole('dialog', { name: '不再处理这次经验？' })
     const buttons = Array.from(dialog.querySelectorAll('button'))
     expect(buttons[0]).toBe(document.activeElement)
     document.body.focus()
@@ -1290,7 +1290,7 @@ describe('run2skill native settings surface', () => {
     fireEvent.keyDown(document, { key: 'Tab', ['shift' + 'Key']: true })
     expect(buttons.at(-1)).toBe(document.activeElement)
     fireEvent.keyDown(document, { key: 'Escape' })
-    expect(screen.queryByRole('dialog', { name: '确认关闭此待处理事项？' })).toBeNull()
+    expect(screen.queryByRole('dialog', { name: '不再处理这次经验？' })).toBeNull()
     expect(trigger).toBe(document.activeElement)
   })
 })
