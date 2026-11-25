@@ -1,0 +1,75 @@
+Run2Skill（@duma520/dsh-run2skill）v1.4.0 三步安装
+=====================================================
+
+适用：DeepSeek Harness（DSH）桌面版 0.2.2-rc.1 及以上任意版本（含 alpha / rc 预发布）。
+
+
+第 1 步：把插件目录放到本机
+----------------------------
+把解压出来的 dsh-run2skill-1.4.0 整个目录，复制到任意固定位置，例如：
+
+    G:\DSH\dsh-plugins\dsh-run2skill
+
+注意：目录里必须有 lib\index.js 和 lib\client.js（本压缩包已带现成产物，不用自己构建）。
+
+
+第 2 步：在 profile 里挂上这个目录
+----------------------------------
+编辑（没有就新建）：
+
+    %USERPROFILE%\.dsh\profiles\desktop\package.json
+
+在 dependencies 里加一行，注意用 file: 或 link: 指向第 1 步的真实路径：
+
+    "@duma520/dsh-run2skill": "link:G:/DSH/dsh-plugins/dsh-run2skill"
+
+再在同一文件的 dsh.profile.bundles 数组里加一项：
+
+    "@duma520/dsh-run2skill"
+
+然后在 %USERPROFILE%\.dsh\profiles\desktop\cordis.patch.yml 里追加（注意 @ 开头必须加引号）：
+
+    - id: run2skill
+      name: '@duma520/dsh-run2skill'
+
+最后建一次软链（Windows 用管理员 PowerShell，或直接让 pnpm 装）：
+
+    cd %USERPROFILE%\.dsh\profiles\desktop
+    pnpm install
+
+嫌麻烦？也可以直接照 README.md 的「安装」一节一步步做，那里有完整命令与每步的验证方法。
+
+
+第 3 步：整进程重启 DSH 桌面应用
+--------------------------------
+这一步最关键，且必须是「整进程重启」：
+
+  关窗口 / Ctrl+R 刷新        → 无效（只是窗口级刷新）
+  界面里点「重载插件」        → 无效（宿主按启动时的清单装配，不重读磁盘）
+  任务管理器结束所有
+  DeepSeek Harness.exe 再启动 → 唯一有效
+
+重启后确认：
+  1. 左下角「插件」里出现 dsh-run2skill 卡片；
+  2. 版本号显示 1.4.0，没有红色「不兼容」提示；
+  3. 左侧导航栏出现「技能沉淀」一行；
+  4. 点进去，面板内容多时可以往下滚到底。
+
+
+快速上手
+--------
+· 想让插件记住你的做法：在对话里把要点说清楚（「以后都这样做」「注意不要 X」），
+  这一轮结束后插件会自动整理出一条草稿，到「需要处理」里审核、确认保存。
+· 「待处理」里出现「N 次经验没有整理，这是正常的」——那不是错误，
+  是你在那段对话之后又继续说了话、旧内容作废，点一次「知道了」收起来即可。
+· 「高级召回」默认关闭就对，不用管；只有你自己搭了 embedding 服务才考虑打开。
+
+
+遇到问题
+--------
+先看 避坑指南.md（14 条真实踩过的坑，现象 → 原因 → 解决），
+再看 软件升级迭代记录.md 里对应版本的验证记录。
+插件自己的日志在：%USERPROFILE%\.dsh\dsh-run2skill\logs\run2skill.log
+
+项目主页：https://github.com/duma520/dsh-run2skill
+问题反馈：https://github.com/duma520/dsh-run2skill/issues
