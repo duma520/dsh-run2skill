@@ -246,16 +246,16 @@ For Web, replace `desktop` with `web`. Saved Skills and plugin data remain after
 
 | Version | Date | Change |
 | --- | --- | --- |
-| 1.2.1 | 2026-11-25 | Fix: one truncated Session log made recovery retry forever; also log health codes and recovery failure causes, and cache the historical Session hydration |
-| 1.4.1 | 2026-11-26 | Docs redaction and a stronger gate: maintainer machine paths left in README/INSTALL/changelog are replaced with neutral example paths, and `probes/candidate/verify.mjs` now detects any absolute drive path and scans git-tracked files, not just the npm tarball |
-| 1.4.0 | 2026-11-26 | Three UI fixes: the panel now scrolls vertically (overflow used to be clipped and unreachable); auto-skipped attempts fold into one summary row with a single bulk acknowledge instead of one card and one fake choice each; advanced recall is now explained (what it does, whether to enable it, what service it needs) |
-| 1.3.1 | 2026-11-26 | Compatibility declaration changed to a `>=0.2.2-rc.1` floor: no upper bound any more, so future DSH upgrades (alpha/rc included) are not blocked by the plugin gate, while hosts older than 0.2.2-rc.1 are still rejected |
-| 1.3.0 | 2026-11-26 | Adds a left sidebar "Skill distillery" entry; rewrites the pending-item copy into plain language instead of the old catch-all sentence |
-| 1.2.3 | 2026-11-26 | Fix CI: log rotation only applies to regular files (cross-platform), boundary spec neutralises event literals, candidate verification tracks the fork identity |
-| 1.2.2 | 2026-11-25 | Fix: the event allow-list was missing 24 DSH 0.2.3 types, so recovery stayed DEGRADED; unprojectable Sessions are now skipped instead of aborting the batch |
-| 1.2.0 | 2026-11-25 | Added four capabilities: own file log, runtime generation self-check, skill recall telemetry, publication history snapshots |
-| 1.1.0 | 2026-11-25 | Forked as `@duma520/dsh-run2skill`; widened peer allow-list for DSH 0.2.3-alpha.2 |
 | 1.0.0 | 2026-11-14 | First stable upstream release |
+| 1.1.0 | 2026-11-25 | Forked as `@duma520/dsh-run2skill`; widened peer allow-list for DSH 0.2.3-alpha.2 |
+| 1.2.0 | 2026-11-25 | Added four capabilities: own file log, runtime generation self-check, skill recall telemetry, publication history snapshots |
+| 1.2.1 | 2026-11-25 | Fix: one truncated Session log made recovery retry forever; also log health codes and recovery failure causes, and cache the historical Session hydration |
+| 1.2.2 | 2026-11-25 | Fix: the event allow-list was missing 24 DSH 0.2.3 types, so recovery stayed DEGRADED; unprojectable Sessions are now skipped instead of aborting the batch |
+| 1.2.3 | 2026-11-26 | Fix CI: log rotation only applies to regular files (cross-platform), boundary spec neutralises event literals, candidate verification tracks the fork identity |
+| 1.3.0 | 2026-11-26 | Adds a left sidebar "Skill distillery" entry; rewrites the pending-item copy into plain language instead of the old catch-all sentence |
+| 1.3.1 | 2026-11-26 | Compatibility declaration changed to a `>=0.2.2-rc.1` floor: no upper bound any more, so future DSH upgrades (alpha/rc included) are not blocked by the plugin gate, while hosts older than 0.2.2-rc.1 are still rejected |
+| 1.4.0 | 2026-11-26 | Three UI fixes: the panel now scrolls vertically (overflow used to be clipped and unreachable); auto-skipped attempts fold into one summary row with a single bulk acknowledge instead of one card and one fake choice each; advanced recall is now explained (what it does, whether to enable it, what service it needs) |
+| 1.4.1 | 2026-11-26 | Docs redaction and a stronger gate: maintainer machine paths left in README/INSTALL/changelog are replaced with neutral example paths, and `probes/candidate/verify.mjs` now detects any absolute drive path and scans git-tracked files, not just the npm tarball |
 
 See [软件升级迭代记录.md](软件升级迭代记录.md) for the full change log, verification and rollback steps.
 
