@@ -5,12 +5,12 @@
 <p align="center"><strong>Turn today's lessons into tomorrow's skills.</strong></p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.4.0-247C78" alt="version 1.4.0" />
+  <img src="https://img.shields.io/badge/version-1.4.1-247C78" alt="version 1.4.1" />
   <img src="https://img.shields.io/badge/DSH-0.2.3--alpha.2%20%7C%200.2.2--rc.3%20%7C%200.2.2--rc.1-153B3C" alt="Supports DSH 0.2.3-alpha.2, 0.2.2-rc.3 and 0.2.2-rc.1" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-EAB45C" alt="MIT license" /></a>
 </p>
 
-> **This is the duma520 fork (`@duma520/dsh-run2skill` v1.4.0).**
+> **This is the duma520 fork (`@duma520/dsh-run2skill` v1.4.1).**
 >
 > Upstream: [qkycir-123/dsh-run2skill](https://github.com/qkycir-123/dsh-run2skill) v1.0.0.
 >
@@ -55,7 +55,7 @@ Run2Skill turns the corrections, constraints, and workflows you teach an Agent i
 
 This fork is **not distributed via npm**. It is mounted from a local directory with `link:`. Every step below was verified on 2026-11-25.
 
-1. **Prepare the plugin directory**: on this machine it is `G:\DSH\dsh-plugins\dsh-run2skill`.
+1. **Prepare the plugin directory**: the examples below use `D:\dsh-plugins\dsh-run2skill`; anywhere works, just remember where you put it.
 
    > **A fresh clone from GitHub has no `lib\`** — the repo ships source only and build output is in `.gitignore`. Build it once first:
    > ```bash
@@ -65,21 +65,21 @@ This fork is **not distributed via npm**. It is mounted from a local directory w
    > That produces 8 files in `lib\`: `client.js`, `index.js`, `index.d.ts`, `typert.host.js`, `typert.host.d.ts`, `typert.remote-client.js`, `typert.remote-client.d.ts`, `contract-*.js`.
    > Copying `version/20261125-v4/lib/` from the local backup directory works too — byte-identical.
 
-   Steps 2–6 below use `G:\DSH\dsh-plugins\dsh-run2skill`; replace that path everywhere if you installed elsewhere.
+   Steps 2–6 keep using that example path; replace it with your own if you installed elsewhere.
 2. **Register the dependency** in `%USERPROFILE%\.dsh\profiles\desktop\package.json`:
    ```json
-   "@duma520/dsh-run2skill": "link:G:/DSH/dsh-plugins/dsh-run2skill"
+   "@duma520/dsh-run2skill": "link:D:/dsh-plugins/dsh-run2skill"
    ```
 3. **Add** `"@duma520/dsh-run2skill"` to the `dsh.profile.bundles` array. Without it the host never assembles the Host/Client halves.
 4. **Create the directory symlink** under `%USERPROFILE%\.dsh\profiles\desktop\node_modules\@duma520\`:
    ```cmd
-   mklink /D dsh-run2skill G:\DSH\dsh-plugins\dsh-run2skill
+   mklink /D dsh-run2skill D:\dsh-plugins\dsh-run2skill
    ```
-   If permission is denied, use `python -c "import os; os.symlink(r'G:\DSH\dsh-plugins\dsh-run2skill','dsh-run2skill',target_is_directory=True)"`.
+   If permission is denied, use `python -c "import os; os.symlink(r'D:\dsh-plugins\dsh-run2skill','dsh-run2skill',target_is_directory=True)"`.
 5. **Edit `cordis.patch.yml`**: in the `- id: run2skill` block set `name` to `"@duma520/dsh-run2skill"` — **the quotes are mandatory**, because a bare scalar starting with `@` is invalid YAML.
 6. **Quit the DSH desktop app completely and restart it.** The bundle manifest and client modules are assembled only at boot; hot reload does not apply them.
 
-After restart, the **Plugins** page should list `dsh-run2skill` at version `1.4.0` with no red incompatibility banner.
+After restart, the **Plugins** page should list `dsh-run2skill` at version `1.4.1` with no red incompatibility banner.
 
 ### Why the `dsh plugin` CLI cannot be used here
 
@@ -247,6 +247,7 @@ For Web, replace `desktop` with `web`. Saved Skills and plugin data remain after
 | Version | Date | Change |
 | --- | --- | --- |
 | 1.2.1 | 2026-11-25 | Fix: one truncated Session log made recovery retry forever; also log health codes and recovery failure causes, and cache the historical Session hydration |
+| 1.4.1 | 2026-11-26 | Docs redaction and a stronger gate: maintainer machine paths left in README/INSTALL/changelog are replaced with neutral example paths, and `probes/candidate/verify.mjs` now detects any absolute drive path and scans git-tracked files, not just the npm tarball |
 | 1.4.0 | 2026-11-26 | Three UI fixes: the panel now scrolls vertically (overflow used to be clipped and unreachable); auto-skipped attempts fold into one summary row with a single bulk acknowledge instead of one card and one fake choice each; advanced recall is now explained (what it does, whether to enable it, what service it needs) |
 | 1.3.1 | 2026-11-26 | Compatibility declaration changed to a `>=0.2.2-rc.1` floor: no upper bound any more, so future DSH upgrades (alpha/rc included) are not blocked by the plugin gate, while hosts older than 0.2.2-rc.1 are still rejected |
 | 1.3.0 | 2026-11-26 | Adds a left sidebar "Skill distillery" entry; rewrites the pending-item copy into plain language instead of the old catch-all sentence |

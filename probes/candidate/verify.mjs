@@ -122,10 +122,26 @@ const secretRules = [
   ['API_KEY', /\b(?:gh[pousr]_[a-z0-9]{20,}|glpat-[a-z0-9_-]{20,}|xox[baprs]-[a-z0-9-]{10,}|npm_[a-z0-9]{20,}|aiza[a-z0-9_-]{30,}|sk-[a-z0-9][a-z0-9_-]{18,}[a-z0-9]|(?:pk|rk)-(?:live|test)-[a-z0-9_-]{16,}|(?:akia|asia|aida|aroa|aipa|anpa|anva|asca)[a-z0-9]{16})\b/giu],
   ['CREDENTIAL_URL', /https?:\/\/[^\s/:]+:[^\s/@]+@/gu],
 ]
+// 本机绝对路径的识别规则。路径字符集刻意只用 ASCII，避免把中文标点吞进 match。
 const localPathRules = [
   ['WINDOWS_HOME', /\b[a-z]:[\\/](?:users|data|home|tmp)[\\/][^\s"'`<>]*/giu],
-  ['POSIX_HOME', /\/(?:home\/[^/\s]+|users\/[^/\s]+|mnt\/[a-z]\/|root\/)[^\s"'`<>]*/giu],
-]
+  ['POSIX_HOME', /(?<!\S)\/(?:home|users)\/[^\/\s]+\/[^\s"`<>]*|(?<!\S)\/(?:mnt\/[a-z]|root)\/[^\s"`<>]*/giu],
+  // 任意盘符绝对路径。上面两条只认 users/data/home/tmp，于是把维护者机器目录写进
+  // README 时完全没人拦（v1.4.0 之前就是这样漏出去的）——v1.4.1 补上这条。
+  ['WINDOWS_DRIVE', /\b[a-z]:[\\/][A-Za-z0-9_.\\/$%~{}-]*/giu],
+];
+// 仓库里给夹具用的合成目录。判定前先把连续反斜杠压成一个，再按前缀白名单匹配；
+// 命中白名单的不算本机路径。新增夹具若用了别的合成目录，在这里加一条，别放宽规则。
+const permittedLocalPaths = [
+  /^[a-z]:[\\/]{1,2}$/iu,
+  /^[a-z]:[\\/]\$\{/iu,
+  /^[a-z]:[\\/](?:repo|workspace|workspace-a|workspace-b|work|work-a|work-b|project|private|other|other-project|other-workspace|client|demo|canonical|canonical-workspace|elsewhere|session|unrelated|bundled|synthetic-private-path|dsh-plugins)(?:[\\/]|$)/iu,
+  /^[a-z]:[\\/]program(?:[\\/]|$)/iu,
+  /^[a-z]:[\\/]users[\\/]?$/iu,
+  /^[a-z]:[\\/]users[\\/]private[\\/]/iu,
+  /^\/(?:tmp|mnt|root|workspace|usr)\/[^\s]*private[^\s]*$/u,
+  /^\/(?:home|users)\/(?:example|user|runner|someone)(?:\/|$)/u,
+];
 
 function run(executable, args, options = {}) {
   const result = spawnSync(executable, args, {
@@ -208,11 +224,44 @@ function scanLocalPaths(name, content) {
   const findings = []
   for (const [rule, pattern] of localPathRules) {
     for (const match of content.matchAll(pattern)) {
+      const normalized = match[0].replace(/\\{2,}/gu, '\\')
+      if (permittedLocalPaths.some(permitted => permitted.test(normalized))) continue
       const line = content.slice(0, match.index).split('\n').length
       findings.push(`${name}:${rule}:${String(line)}`)
     }
   }
   return findings
+}
+
+// 正向自检：本机路径规则必须真的能拦住任意盘符的绝对路径，否则等于没补。
+// 样例用拼接构造，免得校验器把本文件里的示例当成真路径（自指误报）。
+const DRIVE = 'Q:'
+for (const sample of [
+  `${DRIVE}\\deployment\\plugins\\run2skill`,
+  `${DRIVE}/deployment/plugins/run2skill`,
+  `${DRIVE}\\source\\project\\README.md`,
+  `${DRIVE}\\Users\\somebody\\.dsh\\profiles\\desktop`,
+]) {
+  assert.equal(
+    scanLocalPaths('positive.fixture', `see ${sample} for details`).length > 0,
+    true,
+    `candidate scanner must reject local path ${sample}`,
+  )
+}
+// 反向自检：合成夹具路径不能误报，否则 CI 会被一堆测试数据打挂。
+for (const sample of [
+  'D:' + '\\workspace\\project\\SKILL.md',
+  'D:' + '/repo/.dsh/skills',
+  'D:' + '\\private\\workspace\\file.log',
+  'C:' + '\\Users\\<用户名>\\.dsh',
+  'C:' + '\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+  '/home/example',
+]) {
+  assert.deepEqual(
+    scanLocalPaths('negative.fixture', `see ${sample} for details`),
+    [],
+    `candidate scanner must permit synthetic path ${sample}`,
+  )
 }
 
 const rejectedAssignmentSamples = [
@@ -279,7 +328,7 @@ assert.deepEqual({
   peerDependencies: packedManifest.peerDependencies,
 }, {
   name: '@duma520/dsh-run2skill',
-  version: '1.4.0',
+  version: '1.4.1',
   description: 'Turn explicit DSH session experience into reviewable native Skills',
   icon: './assets/run2skill-logo.webp',
   keywords: [
@@ -353,12 +402,20 @@ const tracked = run('git', ['ls-files', '-z']).split('\0').filter(Boolean)
 const findings = []
 for (const path of tracked) {
   const content = await readFile(resolve(root, path), 'utf8').catch(() => undefined)
-  if (content !== undefined) findings.push(...scan(path, content))
+  if (content === undefined) continue
+  // 二进制文件（png/webp/gif/ico…）按 utf8 读出来是替换字符乱码，扫了只会误报。
+  const binary = content.includes('\u0000') || content.includes('\uFFFD')
+  findings.push(...scan(path, content))
+  // 文档与源码里的本机路径同样要拦：v1.4.0 之前只扫 npm 包内容，
+  // 于是 README 里的维护者目录一路发到了 GitHub 与 Release 资产里。
+  if (!binary) findings.push(...scanLocalPaths(path, content))
 }
 for (const path of packageFiles) {
   const content = run('tar', ['-xOf', tarballPath, `package/${path}`])
+  // 二进制（png/webp/gif/ico）按字符串读出来是乱码，扫了只会误报。
+  const binary = content.includes('\u0000') || content.includes('\uFFFD')
   findings.push(...scan(`package/${path}`, content))
-  findings.push(...scanLocalPaths(`package/${path}`, content))
+  if (!binary) findings.push(...scanLocalPaths(`package/${path}`, content))
 }
 assert.deepEqual([...new Set(findings)].sort(), [], 'secret-like material found in repository or package')
 

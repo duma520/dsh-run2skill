@@ -5,12 +5,12 @@
 <p align="center"><strong>把对话经验，变成下次可用的 Skill。</strong></p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.4.0-247C78" alt="版本 1.4.0" />
+  <img src="https://img.shields.io/badge/version-1.4.1-247C78" alt="版本 1.4.1" />
   <img src="https://img.shields.io/badge/DSH-%3E%3D0.2.2--rc.1-153B3C" alt="支持 DSH 0.2.2-rc.1 及以上的任意版本（含 alpha/rc 预发布）" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-EAB45C" alt="MIT 许可证" /></a>
 </p>
 
-> **这是 duma520 维护的分叉版本（`@duma520/dsh-run2skill` v1.4.0）**
+> **这是 duma520 维护的分叉版本（`@duma520/dsh-run2skill` v1.4.1）**
 >
 > 上游为 [qkycir-123/dsh-run2skill](https://github.com/qkycir-123/dsh-run2skill) v1.0.0。
 >
@@ -20,6 +20,8 @@
 > 1.2.1 是缺陷修复：一条历史会话日志缺了 7 个事件，曾导致插件恢复永久卡死（详见迭代记录）。
 > 1.2.2 继续修同一个症状的另一半：28 种事件白名单缺了 0.2.3 新增的 24 种，导致 201 个历史会话无法投影、恢复整批中断（详见迭代记录）。
 > 1.3.0 把插件搬进左侧栏：新增「技能沉淀」导航入口（侧栏一行 + 主面板 + 插件详情页按钮），并把「待处理」那块的文案从内部术语改成看得懂的话——之前一句「处理过程中出现问题」让人完全摸不着头脑。
+> 1.4.1 把文档里残留的本机路径全部换成中性示例路径，并给发布校验补上「任意盘符绝对路径」这条规则——之前 README 里写着维护者自己的机器目录，一路发到了 GitHub 和 Release 资产里，校验器完全没拦住。
+>
 > 1.4.0 修界面上的三个真问题：①面板内容超出后没有滚动条、底部根本看不到；②「自动跳过」的经验也逐条列成待办卡片、却只给一个按钮，等于假选择——现在折叠成一条汇总行 + 一次批量「知道了」；③「高级召回」原来只有一句术语，看不懂该不该勾——现在写清了它做什么、要不要开、开了要自备什么。
 >
 > - 上游 1.0.0 在 DSH 0.2.3-alpha.2 上会被插件门禁拦下，报「与 DSH 0.2.3-alpha.2 不兼容（要求 … 0.2.2-rc.1 \|\| 0.2.2-rc.3）」。
@@ -63,7 +65,7 @@ Run2Skill 把你在 DeepSeek Harness（DSH）里教给 Agent 的纠正、约束�
 
 本分叉**不走 npm**，用本地目录 + `link:` 挂载。装法如下（每一步都已在 2026-11-25 实测过）：
 
-1. **准备插件目录**：本机路径是 `G:\DSH\dsh-plugins\dsh-run2skill`。
+1. **准备插件目录**：下面用 `D:\dsh-plugins\dsh-run2skill` 作为示例路径，随便放哪都行，记住实际位置即可。
 
    > **从 GitHub 克隆的话，`lib\` 不存在**（仓库只收源码，构建产物在 `.gitignore` 里）。先构建一次：
    > ```bash
@@ -73,22 +75,22 @@ Run2Skill 把你在 DeepSeek Harness（DSH）里教给 Agent 的纠正、约束�
    > 成功后 `lib\` 会有 8 个文件：`client.js`、`index.js`、`index.d.ts`、`typert.host.js`、`typert.host.d.ts`、`typert.remote-client.js`、`typert.remote-client.d.ts`、`contract-*.js`。
    > 从本机备份目录 `version/20261125-v4/lib/` 直接拷一份也可以，字节完全一致。
 
-   下面 2~6 步用的是 `G:\DSH\dsh-plugins\dsh-run2skill`；装在别处就把这个路径整体替换掉。
+   下面 2~6 步沿用这个示例路径；你装在别处就把路径整体替换成自己的。
 
 2. **在 profile 里挂依赖**。编辑 `%USERPROFILE%\.dsh\profiles\desktop\package.json`，`dependencies` 加一行：
    ```json
-   "@duma520/dsh-run2skill": "link:G:/DSH/dsh-plugins/dsh-run2skill"
+   "@duma520/dsh-run2skill": "link:D:/dsh-plugins/dsh-run2skill"
    ```
 3. **在 `dsh.profile.bundles` 数组里加一项** `"@duma520/dsh-run2skill"`（不加则宿主不会装配它的 Host/Client 半身）。
 4. **建目录符号链接**（在 `%USERPROFILE%\.dsh\profiles\desktop\node_modules\@duma520\` 下）：
    ```cmd
-   mklink /D dsh-run2skill G:\DSH\dsh-plugins\dsh-run2skill
+   mklink /D dsh-run2skill D:\dsh-plugins\dsh-run2skill
    ```
-   用 PowerShell 的 `New-Item -ItemType SymbolicLink` 也可以；若报没有权限，用 `python -c "import os; os.symlink(r'G:\DSH\dsh-plugins\dsh-run2skill','dsh-run2skill',target_is_directory=True)"`。
+   用 PowerShell 的 `New-Item -ItemType SymbolicLink` 也可以；若报没有权限，用 `python -c "import os; os.symlink(r'D:\dsh-plugins\dsh-run2skill','dsh-run2skill',target_is_directory=True)"`。
 5. **改 `cordis.patch.yml`**：找到 `- id: run2skill` 那一行，把 `name` 改成 `"@duma520/dsh-run2skill"`（**必须带引号**，YAML 里以 `@` 开头的裸标量是非法的）。`config.automaticLearning` 保留原值。
 6. **彻底退出并重启 DSH 桌面应用**。前端与 bundle 清单只在启动时装配一次，热刷新不生效。
 
-重启后验证：左侧栏 **插件** 里出现 `dsh-run2skill` 卡片，版本 `1.4.0`，`未运行` 的红字不兼容提示消失。
+重启后验证：左侧栏 **插件** 里出现 `dsh-run2skill` 卡片，版本 `1.4.1`，`未运行` 的红字不兼容提示消失。
 
 ### 为什么不能用 `dsh plugin` 命令行
 
@@ -275,6 +277,7 @@ Web 用户将 `desktop` 换成 `web`。卸载后已保存的 Skill 和插件数�
 | 版本 | 日期 | 一句话变更 |
 | --- | --- | --- |
 | 1.2.1 | 2026-11-25 | 修复：单条残缺会话日志会让恢复永久重试；补健康码落盘、恢复失败原因落盘、历史会话水合缓存 |
+| 1.4.1 | 2026-11-26 | 文档脱敏 + 校验器补强：README/INSTALL/迭代记录里残留的维护者本机路径全部换成中性示例路径；`probes/candidate/verify.mjs` 新增「任意盘符绝对路径」检测规则，并让 git 跟踪文件（不只是 npm 包内容）也过本机路径扫描 |
 | 1.4.0 | 2026-11-26 | 修三处界面问题：面板补上纵向滚动（之前内容超出就被裁掉、翻不下去）；「自动跳过」的经验折叠成一条汇总行 + 批量「知道了」，不再逐条给一个假选项；「高级召回」补上完整说明（是什么、要不要开、开了要自备向量服务） |
 | 1.3.1 | 2026-11-26 | 兼容性声明改为 `>=0.2.2-rc.1` 下限：不再设版本上限，DSH 以后升级（含 alpha/rc）不会被插件门禁拦截；同时仍拦 0.2.2-rc.1 之前的旧宿主 |
 | 1.3.0 | 2026-11-26 | 新增左侧栏「技能沉淀」导航入口；「待处理」文案改成看得懂的话（不再显示「处理过程中出现问题」这类兜底句） |
