@@ -125,7 +125,7 @@ const secretRules = [
 // 本机绝对路径的识别规则。路径字符集刻意只用 ASCII，避免把中文标点吞进 match。
 const localPathRules = [
   ['WINDOWS_HOME', /\b[a-z]:[\\/](?:users|data|home|tmp)[\\/][^\s"'`<>]*/giu],
-  ['POSIX_HOME', /(?<!\S)\/(?:home|users)\/[^\/\s]+\/[^\s"`<>]*|(?<!\S)\/(?:mnt\/[a-z]|root)\/[^\s"`<>]*/giu],
+  ['POSIX_HOME', /(?<!\S)\/(?:home|users)\/[^/\s]+\/[^\s"`<>]*|(?<!\S)\/(?:mnt\/[a-z]|root)\/[^\s"`<>]*/giu],
   // 任意盘符绝对路径。上面两条只认 users/data/home/tmp，于是把维护者机器目录写进
   // README 时完全没人拦（v1.4.0 之前就是这样漏出去的）——v1.4.1 补上这条。
   ['WINDOWS_DRIVE', /\b[a-z]:[\\/][A-Za-z0-9_.\\/$%~{}-]*/giu],
