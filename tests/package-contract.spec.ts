@@ -35,7 +35,7 @@ describe('published package contract', () => {
   it('pins the public 0.6 alpha identity and portable repository metadata', () => {
     expect(manifest).toMatchObject({
       name: '@duma520/dsh-run2skill',
-      version: '1.4.3',
+      version: '1.5.0',
       description: 'Turn explicit DSH session experience into reviewable native Skills',
       keywords: [
         'deepseek-harness',

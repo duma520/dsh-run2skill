@@ -955,6 +955,8 @@ export function LearningFailureSection(props: {
   const [refreshGeneration, setRefreshGeneration] = useState(0)
   const [pending, setPending] = useState<string>()
   const [batchPending, setBatchPending] = useState(false)
+  const [batchDismissOpen, setBatchDismissOpen] = useState(false)
+  const batchDismissTriggerRef = useRef<HTMLButtonElement | null>(null)
   const [dismiss, setDismiss] = useState<LearningIssue>()
   const dismissTriggerRef = useRef<HTMLButtonElement | null>(null)
   const learningActions = useMemo(() => new Map(props.actions.flatMap(action => (
@@ -1039,17 +1041,19 @@ export function LearningFailureSection(props: {
   const actionable = items.filter(item => !AUTO_SKIPPED_FAILURES.has(item.failureCode))
 
   /**
-   * 一键收起全部自动跳过的条目。
+   * 批量把一批条目标记为「不再处理」。
    *
    * 逐条串行调用、失败不中断其余：任何一条被后端拒绝（ACTION_STALE 等）都不该
-   * 让用户点一次只收起一半却看不到原因。
+   * 让用户点一次只收起一半却看不到原因。串行而不是并发，是因为 dismiss 会改同一份
+   * 待处理列表，并发写同一张表只会互相踩 revision。
    */
-  const acknowledgeSkipped = (): void => {
+  const dismissMany = (batch: readonly LearningIssue[]): void => {
     if (batchPending || pending !== undefined) return
+    if (batch.length === 0) return
     setBatchPending(true)
     void (async () => {
       let failed = 0
-      for (const item of skipped) {
+      for (const item of batch) {
         const selected = learningActions.get(item.workItemId)
         if (selected?.subjectId === undefined || selected.kind === undefined) continue
         try {
@@ -1079,6 +1083,20 @@ export function LearningFailureSection(props: {
       if (failed > 0) setPhase('ERROR')
     })().finally(() => { setBatchPending(false) })
   }
+  /** 自动跳过的那一批，一键收起。 */
+  const acknowledgeSkipped = (): void => { dismissMany(skipped) }
+  /**
+   * 「一键处理」只收那些除了「不再处理」没有别的动作的条目。
+   *
+   * 带 RETRY 的条目一律留给用户单独决定：批量重试会连着打模型，而且这些条目
+   * 重试往往有真实的选择含义（例如「继续生成草稿」还是「用已有 Skill」），
+   * 不该被一次批量点击糊过去。
+   */
+  const dismissable = actionable.filter(item => {
+    const selected = learningActions.get(item.workItemId)
+    const available = selected?.availableActions ?? []
+    return available.includes('DISMISS') && !available.includes('RETRY')
+  })
 
   useEffect(() => {
     if (props.onAutoSkipped === undefined) return
@@ -1091,6 +1109,19 @@ export function LearningFailureSection(props: {
       createElement('strong', null, actionable.length === 0
         ? '自动沉淀未继续'
         : `自动沉淀未继续 · ${String(actionable.length)} 项`),
+      // 一条也显示：只有一条时逐条点和一键点是一回事，但把入口藏起来会让用户
+      // 误以为「这里不能批量处理」，反而多找一遍。
+      dismissable.length === 0
+        ? null
+        : createElement(Button, {
+            variant: 'primary',
+            size: 'sm',
+            disabled: !props.active || pending !== undefined || batchPending,
+            onClick: event => {
+              batchDismissTriggerRef.current = event.currentTarget
+              setBatchDismissOpen(true)
+            },
+          }, `一键全部不再处理（${String(dismissable.length)} 条）`),
       createElement(Button, {
         variant: 'outline',
         size: 'sm',
@@ -1169,6 +1200,22 @@ export function LearningFailureSection(props: {
             : null,
         ),
       )
+    }),
+    createElement(ManagedConfirmationModal, {
+      open: batchDismissOpen,
+      title: `一键处理这 ${String(dismissable.length)} 条待处理？`,
+      description: '会把这批条目从待处理列表里移除。已有 Skill、会话记录和日志都不会被删除；'
+        + '如果后面还想整理哪些经验，在对话里重新说明一遍做法即可。'
+        + '带「重试」选项的条目不会被动到，仍然留在下面等你单独决定。',
+      disabled: batchPending || pending !== undefined,
+      triggerRef: batchDismissTriggerRef,
+      onClose: () => { setBatchDismissOpen(false) },
+      confirmLabel: batchPending ? '正在处理…' : '全部不再处理',
+      onConfirm: () => {
+        const batch = dismissable
+        setBatchDismissOpen(false)
+        dismissMany(batch)
+      },
     }),
     createElement(ManagedConfirmationModal, {
       open: dismiss !== undefined,

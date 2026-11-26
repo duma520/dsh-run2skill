@@ -196,22 +196,28 @@ function boundUtf8(value: string, maxBytes: number): { readonly text: string; re
   }
 }
 
+// A model answer normally arrives as several blocks: reasoning, text, and one or
+// more tool calls. Treating any non-text block as malformed dropped the whole
+// assistant projection, so the observation came out INCOMPLETE and the direct-user
+// evidence was wiped with it: 245 of 265 historical Turns failed on this alone.
+// Non-text blocks are simply not part of the summary - reasoning is internal and a
+// tool call is carried by the tool projection - so they are skipped rather than
+// rejected. A structurally broken message still fails closed.
 function textContent(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) return undefined
   const result: string[] = []
   for (const block of value) {
     if (!isRecord(block) || typeof block['type'] !== 'string') return undefined
-    if (block['type'] === 'text') {
-      if (typeof block['text'] !== 'string') return undefined
-      result.push(block['text'])
-    }
+    if (block['type'] !== 'text') continue
+    if (typeof block['text'] !== 'string') return undefined
+    result.push(block['text'])
   }
   return result
 }
 
 function projectDirectEvidence(
   messages: readonly { readonly messageSeq: number; readonly textBlocks: readonly string[] }[],
-  textOnly: boolean,
+  hasText: boolean,
 ): ProjectionPart<{
   readonly evidence: TurnObservationV2['directUserEvidence']
   readonly explicitSaveRequested: boolean
@@ -225,7 +231,7 @@ function projectDirectEvidence(
   if (
     analysis.status === 'INCOMPLETE'
     || candidates.length > RUN2SKILL_V2_LIMITS.maxObservationEvidence
-    || !textOnly
+    || !hasText
   ) return { value: { evidence: [], explicitSaveRequested: false }, complete: false }
 
   try {
@@ -291,16 +297,26 @@ function projectAssistantSummary(
   return { value: latest, complete }
 }
 
-function directUserContentIsTextOnly(events: readonly DshSessionEvent[]): boolean {
+// A Direct User message that carries at least one text block can be evidence even
+// when the same message also carries an image or an attachment: the text is what
+// the User actually wrote, and dropping it because of a sibling image is what
+// starved the batch detector of evidence (479 of 540 observations ended up with an
+// empty directUserEvidence, and the detector then rejected every model answer as
+// unbound). Content with no text block at all still fails closed: there is nothing
+// to cite, and an empty evidence set must never be presented as complete.
+function directUserContentHasText(events: readonly DshSessionEvent[]): boolean {
   for (const event of events) {
     if (event.type !== 'user/message' || !isRecord(event.data)) continue
     const source = event.data['source']
     if (!isRecord(source) || source['kind'] !== 'user') continue
     const content = event.data['content']
     if (!Array.isArray(content)) return false
+    let hasText = false
     for (const block of content) {
-      if (!isRecord(block) || block['type'] !== 'text' || typeof block['text'] !== 'string') return false
+      if (!isRecord(block)) continue
+      if (block['type'] === 'text' && typeof block['text'] === 'string') hasText = true
     }
+    if (!hasText) return false
   }
   return true
 }
@@ -519,7 +535,7 @@ export async function projectDshTurnObservationV2(
   ))
   const direct = projectDirectEvidence(
     observed.directUserMessages,
-    directUserContentIsTextOnly(turnEvents),
+    directUserContentHasText(turnEvents),
   )
   const assistant = projectAssistantSummary(turnEvents, observed.turn)
   const tools = projectToolSummaries(turnEvents, observed.turn)

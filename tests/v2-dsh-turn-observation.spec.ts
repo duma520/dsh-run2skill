@@ -312,7 +312,12 @@ describe('DSH TurnObservationV2 projection', () => {
     })
   })
 
-  it('fails closed for text plus image even when the text explicitly requests a save', async () => {
+  // A User message carrying text plus an image used to be thrown away entirely,
+  // which left 479 of 540 observations without any direct evidence and made the
+  // detector reject every model answer as unbound. The text is the part the User
+  // actually wrote, so it stays; a message with no text block at all still fails
+  // closed (the previous test).
+  it('keeps the text of a text plus image Turn as evidence', async () => {
     const events = completeTurn()
     const direct = events.find(event => event.type === 'user/message')!
     ;(direct.data as Record<string, unknown>)['content'] = [
@@ -325,8 +330,34 @@ describe('DSH TurnObservationV2 projection', () => {
     expect(result.status).toBe('OBSERVED')
     if (result.status !== 'OBSERVED') throw new Error('expected an observation')
     expect(result.observation).toMatchObject({
-      completeness: 'INCOMPLETE', explicitSaveRequested: false, directUserEvidence: [],
+      completeness: 'COMPLETE', explicitSaveRequested: true,
     })
+    const excerpts = result.observation.directUserEvidence.map(item => item.excerpt).join('\n')
+    expect(excerpts).toContain('把图片里的流程保存成 Skill。')
+  })
+
+  it('keeps the observation complete when the answer mixes reasoning, text, and tool calls', async () => {
+    const events = completeTurn()
+    const assistantEvent = events.find(event => event.type === 'assistant/message')!
+    const data = assistantEvent.data as Record<string, unknown>
+    const original = data['message'] as Record<string, unknown>
+    data['message'] = {
+      ...original,
+      content: [
+        { type: 'reasoning', text: '内部推理不应进入摘要' },
+        { type: 'text', text: '已按你确认的主从布局改完。' },
+        { type: 'tool-call', toolCallId: 'call-1' },
+      ],
+    }
+
+    const result = await projectDshTurnObservationV2(header, events, 8, workspace)
+
+    expect(result.status).toBe('OBSERVED')
+    if (result.status !== 'OBSERVED') throw new Error('expected an observation')
+    expect(result.observation.completeness).toBe('COMPLETE')
+    expect(result.observation.assistantOutcomeSummary).toContain('主从布局')
+    expect(result.observation.assistantOutcomeSummary).not.toContain('内部推理')
+    expect(result.observation.directUserEvidence[0]?.excerpt).toContain('保存成 Skill')
   })
 
   it('inherits the latest valid route before the Turn and ignores events after the boundary', async () => {

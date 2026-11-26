@@ -5,12 +5,12 @@
 <p align="center"><strong>Turn today's lessons into tomorrow's skills.</strong></p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.4.3-247C78" alt="version 1.4.3" />
+  <img src="https://img.shields.io/badge/version-1.5.0-247C78" alt="version 1.5.0" />
   <img src="https://img.shields.io/badge/DSH-%3E%3D0.2.2--rc.1-153B3C" alt="Supports any DSH from 0.2.2-rc.1 upwards (alpha/rc included)" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-EAB45C" alt="MIT license" /></a>
 </p>
 
-> **This is the duma520 fork (`@duma520/dsh-run2skill` v1.4.3).**
+> **This is the duma520 fork (`@duma520/dsh-run2skill` v1.5.0).**
 >
 > Upstream: [qkycir-123/dsh-run2skill](https://github.com/qkycir-123/dsh-run2skill) v1.0.0.
 >
@@ -19,6 +19,7 @@
 > - Upstream 1.0.0 is rejected by the DSH 0.2.3-alpha.2 plugin gate ("incompatible … requires 0.2.2-rc.1 \|\| 0.2.2-rc.3").
 > - **The 1.2.0 capabilities borrow design ideas only; the code is all original and adds no new `@deepseek-ai/*` dependency.**
 > - 1.4.1 replaced the maintainer machine paths left in the docs with neutral example paths, and taught the publish gate to detect any absolute drive path. 1.4.2 cleared all 23 known dev-dependency advisories (`undici`, `vite`, `fast-uri`, `ansi-regex`, `source-map-js`, `katex` and friends) with zero change to the plugin runtime code. 1.4.3 fixes two real defects: **the "Skill distillery" panel opened from the left sidebar showed six empty sections**, because the sidebar path renders the page directly instead of going through the host `inject`, so it never received the session/workspace subscriptions and the scope degraded to user-only, which the backend rejects as a scope conflict; the panel now subscribes on its own and remembers the last genuinely selected session. Second, the "agent scope unavailable" health code kept firing with no explanation because the `catch` was empty; the underlying error is now written to the log (`plugin.scope_unavailable`) instead of being swallowed.
+. 1.5.0 attacks the root cause of **why it never learned a single Skill**, and adds a button that clears the board at once. Three real defects: **an answer that mixes `reasoning` and `tool-call` blocks made the whole Turn observation incomplete** — and that mixed shape is the normal shape of a model answer, so 245 of 265 historical Turns died on this one rule; an incomplete observation must drop its evidence by contract, so the detector received none and rejected every model answer as unbound, which is exactly the "stuck at semantic detection" symptom. **The route-backfill branch could never fire** — a flag was set to "bound" on the very first scan of a Session, when the route was still empty, so "read further back in the log to recover the route" never ran; 11 of 20 Turns had no `request/header` inside the Turn window and relied entirely on inheritance, so losing it failed the whole batch as `ROUTE_UNAVAILABLE` (419 historical batches). **Turns carrying images are no longer dropped wholesale** — if a Turn has at least one text block, only the text is used as evidence (image-only Turns still fail closed rather than guessing). The pending list also gains **dismiss all**: one click clears every item whose only option was "dismiss", items offering "retry" are left untouched and stay listed for a separate decision, the button shows for any count, and a confirmation states that nothing is deleted.
 > - **A full process restart of the DSH desktop app is required** (closing the window or reloading does not count). See [软件升级迭代记录.md](软件升级迭代记录.md) for the full change log.
 > - Not published to npm; used locally via `link:`.
 
@@ -80,7 +81,7 @@ This fork is **not distributed via npm**. It is mounted from a local directory w
 5. **Edit `cordis.patch.yml`**: in the `- id: run2skill` block set `name` to `"@duma520/dsh-run2skill"` — **the quotes are mandatory**, because a bare scalar starting with `@` is invalid YAML.
 6. **Quit the DSH desktop app completely and restart it.** The bundle manifest and client modules are assembled only at boot; hot reload does not apply them.
 
-After restart, the **Plugins** page should list `dsh-run2skill` at version `1.4.3` with no red incompatibility banner.
+After restart, the **Plugins** page should list `dsh-run2skill` at version `1.5.0` with no red incompatibility banner.
 
 ### Why the `dsh plugin` CLI cannot be used here
 
@@ -257,8 +258,9 @@ For Web, replace `desktop` with `web`. Saved Skills and plugin data remain after
 | 1.3.1 | 2026-11-26 | Compatibility declaration changed to a `>=0.2.2-rc.1` floor: no upper bound any more, so future DSH upgrades (alpha/rc included) are not blocked by the plugin gate, while hosts older than 0.2.2-rc.1 are still rejected |
 | 1.4.0 | 2026-11-26 | Three UI fixes: the panel now scrolls vertically (overflow used to be clipped and unreachable); auto-skipped attempts fold into one summary row with a single bulk acknowledge instead of one card and one fake choice each; advanced recall is now explained (what it does, whether to enable it, what service it needs) |
 | 1.4.1 | 2026-11-26 | Docs redaction and a stronger gate: maintainer machine paths left in README/INSTALL/changelog are replaced with neutral example paths, and `probes/candidate/verify.mjs` now detects any absolute drive path and scans git-tracked files, not just the npm tarball |
-| 1.4.3 | 2026-11-26 | Two real defects fixed: the "Skill distillery" panel opened from the left sidebar showed six empty sections (the sidebar path never got the session/workspace subscriptions, so the scope degraded to user-only and the backend rejected it with a scope conflict; the panel now subscribes itself and remembers the last selected session); and the "agent scope unavailable" health code fired with its cause silently swallowed by an empty `catch`, which now writes the reason to the log |
 | 1.4.2 | 2026-11-26 | Dependency hygiene: all 23 known dev-dependency advisories cleared (upgraded `undici`/`vite`/`fast-uri`/`ansi-regex`/`source-map-js`/`vitest`/`jsdom` and pinned `katex` to 0.18.10 via `overrides` in `pnpm-workspace.yaml`); zero change to the plugin runtime code |
+| 1.4.3 | 2026-11-26 | Two real defects fixed: the "Skill distillery" panel opened from the left sidebar showed six empty sections (the sidebar path never got the session/workspace subscriptions, so the scope degraded to user-only and the backend rejected it with a scope conflict; the panel now subscribes itself and remembers the last selected session); and the "agent scope unavailable" health code fired with its cause silently swallowed by an empty `catch`, which now writes the reason to the log |
+| 1.5.0 | 2026-11-27 | Fixes three root causes of "it never learned a single Skill": an answer mixing reasoning/tool-call blocks made the whole observation incomplete (245 of 265 Turns died there, and the evidence is dropped with it, so detection always failed); the route-backfill branch never fired because its flag bound too early (Turns without request/header failed the batch as ROUTE_UNAVAILABLE); image-carrying Turns now use their text blocks as evidence (image-only still fails closed). Also adds a one-click "dismiss all" for single-option pending items, leaving retryable ones untouched |
 
 See [软件升级迭代记录.md](软件升级迭代记录.md) for the full change log, verification and rollback steps.
 

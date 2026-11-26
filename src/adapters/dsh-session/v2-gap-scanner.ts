@@ -440,7 +440,6 @@ export class DshV2GapScanner {
       const cacheMatchesCursor = cursor !== undefined
         && cachedRoute?.throughSeq === cursor.observedThroughTurnEndSeq
       let inheritedRoute = cacheMatchesCursor ? cachedRoute.route : undefined
-      let inheritedRouteBound = cursor === undefined || fromSeq === 0 || cacheMatchesCursor
       let runningPrefixDigest = cursor?.observedLogPrefixDigest ?? DSH_SESSION_LOG_PREFIX_GENESIS
       runningPrefixDigest = extendDshSessionLogPrefixDigest(
         runningPrefixDigest,
@@ -454,7 +453,14 @@ export class DshV2GapScanner {
         if (event?.type !== 'turn/end') continue
         const turnEvents = scanEvents.slice(turnSliceStart, index + 1)
         const turnContainsRoute = turnEvents.some(candidate => candidate.type === 'request/header')
-        if (!inheritedRouteBound && !turnContainsRoute) {
+        // A Turn whose own slice carries no request/header has to inherit the
+        // route from earlier in the same log. inheritedRouteBound used to be
+        // true on the very first scan (cursor === undefined) while
+        // inheritedRoute was still undefined, so this backfill never ran and
+        // every such Turn was frozen as route-unavailable — that is where the
+        // 419 ROUTE_UNAVAILABLE batches came from. Recover whenever the
+        // inherited route is not actually usable.
+        if (inheritedRoute?.complete !== true && !turnContainsRoute) {
           if (recoveredRouteEvents === undefined) {
             if (readFromSeq === 0) {
               recoveredRouteEvents = read.events
@@ -499,10 +505,8 @@ export class DshV2GapScanner {
             recoveredRouteEvents,
             cursor?.observedThroughTurnEndSeq ?? 0,
           )
-          inheritedRouteBound = true
         }
         inheritedRoute = advanceDshRequestRouteV2(inheritedRoute, turnEvents, event.seq)
-        if (turnContainsRoute) inheritedRouteBound = true
         const observed = await this.sink.observeTurn(
           read.header,
           turnEvents,

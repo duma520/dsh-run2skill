@@ -1319,6 +1319,61 @@ describe('run2skill native settings surface', () => {
     expect(screen.getByRole('button', { name: '不再处理这次经验' })).toBeTruthy()
   })
 
+  it('dismisses every non-retryable pending item through one confirmed batch action', async () => {
+    // 用户原话：「增加一键处理。」「哪怕只有 1 条也显示这个按钮」
+    // 五条待办逐个点五次不合理；但带「重试」的条目有真实选择含义，不能被批量糊过去。
+    const ids = [`wi_${'7'.repeat(64)}`, `wi_${'8'.repeat(64)}`, `wi_${'9'.repeat(64)}`]
+    const retryableId = `wi_${'a'.repeat(64)}`
+    const item = (workItemId: string, revision: number) => ({
+      workItemId, workItemRevision: revision,
+      createdAt: '2026-08-21T00:00:00.000Z', updatedAt: '2026-08-21T00:00:01.000Z',
+      failureCode: 'ROUTE_UNAVAILABLE', retryable: false, attempt: 0, requestBudgetUsed: 0, calls: [],
+      attentionKind: 'PROCESSING_FAILURE', currentStage: 'DETECTION',
+    })
+    const call = vi.fn(async (endpoint: string, _payload?: unknown) => endpoint === 'learning/issues/list'
+      ? { ok: true, value: { apiVersion: 1, items: [
+          item(ids[0]!, 1), item(ids[1]!, 2), item(ids[2]!, 3), item(retryableId, 4),
+        ] } }
+      : { ok: true, value: {} })
+    const action = (subjectId: string, available: readonly string[]) => ({
+      actionKey: `act_${subjectId.slice(-1).repeat(64)}`,
+      subjectId,
+      kind: available.includes('RETRY') ? 'RETRY_LEARNING' as const : 'DISMISS_LEARNING' as const,
+      availableActions: available,
+    })
+    render(createElement(LearningFailureSection, {
+      call, active: true,
+      actions: [
+        action(ids[0]!, ['DISMISS']), action(ids[1]!, ['DISMISS']), action(ids[2]!, ['DISMISS']),
+        action(retryableId, ['RETRY', 'DISMISS']),
+      ],
+      onMutationSettled: vi.fn(),
+    }))
+
+    await screen.findByRole('region', { name: '自动沉淀未继续' })
+    // 四张卡片都在列表里，但一键只报三条不可重试的
+    expect(screen.getAllByRole('button', { name: '不再处理这次经验' })).toHaveLength(4)
+    const trigger = screen.getByRole('button', { name: '一键全部不再处理（3 条）' })
+
+    fireEvent.click(trigger)
+    const dialog = await screen.findByRole('dialog', { name: '一键处理这 3 条待处理？' })
+    expect(dialog.textContent).toContain('带「重试」选项的条目不会被动到')
+
+    fireEvent.click(screen.getByRole('button', { name: '全部不再处理' }))
+    await waitFor(() => {
+      const dismissals = call.mock.calls.filter(([endpoint]) => endpoint === 'learning/issues/dismiss')
+      expect(dismissals).toHaveLength(3)
+      expect(dismissals.map(([, payload]) => (payload as { workItemId: string }).workItemId))
+        .toEqual(ids)
+    })
+    // 带重试的那条必须留下
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: '一键全部不再处理（3 条）' })).toBeNull()
+    })
+    expect(screen.getAllByRole('button', { name: '不再处理这次经验' })).toHaveLength(1)
+    expect(screen.getByRole('button', { name: '重试学习' })).toBeTruthy()
+  })
+
   it('gives Learning dismiss the same focus trap, escape, and trigger restoration', async () => {
     const workItemId = `wi_${'c'.repeat(64)}`
     const call = vi.fn(async (endpoint: string) => endpoint === 'learning/issues/list'
