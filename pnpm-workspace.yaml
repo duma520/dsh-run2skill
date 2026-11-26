@@ -37,3 +37,6 @@ minimumReleaseAgeExclude:
   - '@deepseek-ai/dsh-client-store@0.2.0-rc.2||0.2.1-rc.2||0.2.2-rc.1||0.2.2-rc.3'
   - '@deepseek-ai/dsh-util-code-language@0.2.0-rc.2||0.2.1-rc.2||0.2.2-rc.1||0.2.2-rc.3'
   - '@deepseek-ai/dsh-util-workspace-path@0.2.0-rc.2||0.2.1-rc.2||0.2.2-rc.1||0.2.2-rc.3'
+
+overrides:
+  katex: ^0.18.10
