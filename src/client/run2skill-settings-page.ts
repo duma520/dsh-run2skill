@@ -1642,6 +1642,8 @@ function selectedSessionId(state: SessionSelectionSnapshot): string | undefined 
   return selected.length === 1 ? selected[0]!.id : undefined
 }
 
+const EMPTY_SESSION_SELECTION: SessionSelectionSnapshot = { byId: {} }
+
 function currentSessionId(context: Run2skillClientContext): string | undefined {
   const snapshot = context.sessions?.list.getSnapshot()
   return snapshot === undefined ? undefined : selectedSessionId(snapshot)
@@ -1700,6 +1702,50 @@ export async function applyRun2skillClient(context: Run2skillClientContext): Pro
     }
   }
 
+  /**
+   * 左侧栏 main 槽位不走宿主的 inject，拿不到 GlobalStandardProps 里的
+   * useSessions / useWorkspaces，只有 plugins.bundle.config 那条路径才有。
+   * 于是侧栏面板只能读到注册那一刻的静态快照：currentScope 退化成 USER_ONLY，
+   * 后端按 scope conflict 拒绝，六个区全空。这里自己订一份，两条路径行为一致。
+   *
+   * 还有一层：把主视图从会话切到本面板时，宿主可能让会话释放 mainView 保留，
+   * selectedSessionId 会瞬间变成 undefined。所以记住最后一次真实选中的会话，
+   * 当前没有选中时用它兜底，避免面板一打开就空。
+   */
+  let lastSelectedSessionId: string | undefined
+  const sessionsList = context.sessions?.list
+  const workspaceList = context.workspaces.list
+  const subscribeSessions = (listener: () => void): (() => void) =>
+    sessionsList?.subscribe?.(listener) ?? (() => {})
+  const readSessions = (): SessionSelectionSnapshot =>
+    sessionsList?.getSnapshot() ?? EMPTY_SESSION_SELECTION
+  const subscribeWorkspaces = (listener: () => void): (() => void) =>
+    workspaceList.subscribe?.(listener) ?? (() => {})
+  const readWorkspaces = () => workspaceList.getSnapshot()
+  const stickySessions = (state: SessionSelectionSnapshot): SessionSelectionSnapshot => {
+    const live = selectedSessionId(state)
+    if (live !== undefined) {
+      lastSelectedSessionId = live
+      return state
+    }
+    if (lastSelectedSessionId === undefined) return state
+    return {
+      byId: {
+        ...state.byId,
+        [lastSelectedSessionId]: { id: lastSelectedSessionId, retainedBy: { mainView: 1 } },
+      },
+    }
+  }
+  const usePanelSessions = <T,>(selector: (state: SessionSelectionSnapshot) => T): T =>
+    selector(stickySessions(useSyncExternalStore(subscribeSessions, readSessions, readSessions)))
+  const usePanelWorkspaces = <T,>(selector: (state: ReturnType<typeof readWorkspaces>) => T): T =>
+    selector(useSyncExternalStore(subscribeWorkspaces, readWorkspaces, readWorkspaces))
+  const panelProps = () => ({
+    ...pageProps(),
+    useSessions: usePanelSessions,
+    useWorkspaces: usePanelWorkspaces,
+  })
+
   context.slots.inject('plugins.bundle.config', () => context.slots.register({
     name: 'plugins.bundle.config',
     key: '@duma520/dsh-run2skill',
@@ -1708,7 +1754,7 @@ export async function applyRun2skillClient(context: Run2skillClientContext): Pro
 
   // 左侧栏「技能沉淀」入口 + main 面板 + 插件详情页按钮；失败只丢入口，不影响设置页。
   context.effect(
-    () => installRun2skillPanel(context.inject, () => createElement(Run2skillSettingsPage, pageProps())),
+    () => installRun2skillPanel(context.inject, () => createElement(Run2skillSettingsPage, panelProps())),
     'run2skill: 左侧栏面板入口',
   )
 

@@ -1144,8 +1144,14 @@ export async function apply(context: Run2skillHostContext, config: RetrievalConf
         factory.wakeLearning()
         factory.wakePublication()
         factory.wakeCuration()
-      } catch {
+      } catch (error) {
         disposeScope?.()
+        // 这里原先是空 catch：只记一条 AGENT_SCOPE_UNAVAILABLE，真实原因彻底丢掉。
+        // 结果是健康码刷了几千条，却没人知道到底哪一步失败。至少把原因写进日志。
+        log.record('plugin.scope_unavailable', {
+          sessionId: agent.id || 'global',
+          error: error instanceof Error ? error.message : String(error),
+        })
         notices.record({ healthCode: 'AGENT_SCOPE_UNAVAILABLE', sessionId: agent.id || 'global' })
       }
     }
