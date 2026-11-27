@@ -22,6 +22,7 @@ import type { RuntimeNotices } from '../application/capture/runtime-notices.js'
 import type { TurnIngressCandidate } from '../adapters/dsh-session/types.js'
 import type { RecoveryRuntime } from '../application/capture/recovery-lifecycle.js'
 import { createDshV2PipelineRuntime, type DshV2PipelineRuntime, type DshV2PipelineRuntimeOptions } from './v2-pipeline.js'
+import type { DetectionRoute } from '../domain/retrieval/settings.js'
 import { V2ProposalHostServices } from './v2-proposal-services.js'
 import { V2PurgeService } from '../application/purge/index.js'
 import { V2LearningAttentionService } from '../adapters/dsh-connection/v2-learning-attention-rpc.js'
@@ -45,6 +46,8 @@ export interface DshV2ProductionRuntimeOptions<TView extends object> {
   readonly sessions: DshLiveSessionRegistryPort
   readonly agents: DshLiveAgentRegistryPort
   readonly llm: DshLlmPort
+  /** Routes semantic detection falls back to when a Turn exposes no route. */
+  readonly detectionRoutes?: () => readonly DetectionRoute[]
   readonly skills: DshSkillRegistryPort<TView>
   readonly workspace: WorkspaceBindingPort
   readonly resolveWorkspace: CurrentWorkspaceResolver
@@ -148,6 +151,7 @@ export class DshV2ProductionRuntime<TView extends object> implements RecoveryRun
     this.pipeline = createDshV2PipelineRuntime(domain, {
       ...(options.retrieval ? { retrieval: options.retrieval } : {}),
       llm: options.llm,
+      ...(options.detectionRoutes === undefined ? {} : { detectionRoutes: options.detectionRoutes }),
       baseline: manifest,
       activity,
       ownership,

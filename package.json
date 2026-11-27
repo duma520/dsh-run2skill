@@ -1,6 +1,6 @@
 {
   "name": "@duma520/dsh-run2skill",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "Turn explicit DSH session experience into reviewable native Skills",
   "icon": "./assets/run2skill-logo.webp",
   "keywords": [

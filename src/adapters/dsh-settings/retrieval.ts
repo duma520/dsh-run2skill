@@ -1,6 +1,11 @@
 import z from '@deepseek-ai/schemastery'
 import { RETRIEVAL_DEFAULTS, type RetrievalSettings } from '../../domain/retrieval/settings.js'
-export { RETRIEVAL_DEFAULTS, type RetrievalSettings } from '../../domain/retrieval/settings.js'
+export {
+  detectionRoute,
+  RETRIEVAL_DEFAULTS,
+  type DetectionRoute,
+  type RetrievalSettings,
+} from '../../domain/retrieval/settings.js'
 
 export type RetrievalConfig = { readonly [K in keyof RetrievalSettings]?: { get(): RetrievalSettings[K] } }
 
@@ -16,6 +21,12 @@ export const RetrievalSettingsSchema = z.object({
   rerankerEndpoint: z.string().default('').volatile(),
   rerankerModel: z.string().default(RETRIEVAL_DEFAULTS.rerankerModel).volatile(),
   rerankerApiKeyEnv: z.string().default('').volatile(),
+  // Routes used by semantic detection when a Turn carries no observable route.
+  // Volatile like the rest: they are read on every batch, not cached per mount.
+  detectionProvider: z.string().default('').volatile(),
+  detectionModel: z.string().default('').volatile(),
+  fallbackProvider: z.string().default('').volatile(),
+  fallbackModel: z.string().default('').volatile(),
 })
 
 export function retrievalSettings(config: RetrievalConfig): RetrievalSettings {

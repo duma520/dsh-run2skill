@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   DshV2RouteSnapshotAdapter,
   V2_ROUTE_BUDGET_POLICY_VERSION,
+  V2_ROUTE_FALLBACK_POLICY_SUFFIX,
 } from '../src/adapters/dsh-llm/v2-route-snapshot.js'
 import type { DshLlmPort } from '../src/adapters/dsh-llm/restricted-learning-client.js'
 import { createMinimalV2Fixtures } from './support/v2-fixtures.js'
@@ -90,5 +91,100 @@ describe('DshV2RouteSnapshotAdapter', () => {
     await expect(adapter.capture('sl_session', [observation(10)]))
       .rejects.toThrow('ROUTE_CAPACITY_UNAVAILABLE')
     expect(signal?.aborted).toBe(true)
+  })
+})
+
+describe('DshV2RouteSnapshotAdapter fallback routes', () => {
+  const incomplete = () => ({ ...observation(20), routeObservation: { complete: false } })
+
+  it('freezes the configured route when the Turn itself exposes no route', async () => {
+    const adapter = new DshV2RouteSnapshotAdapter(
+      llm({ context: { contextWindow: 128_000 }, defaultMaxTokens: 8_192 }),
+      { fallbackRoutes: () => [{ provider: 'workbuddy', model: 'deepseek-v4.1-flash' }] },
+    )
+
+    await expect(adapter.capture('sl_session', [incomplete()])).resolves.toEqual({
+      provider: 'workbuddy',
+      model: 'deepseek-v4.1-flash',
+      // The suffix is the only thing distinguishing a configured route from an
+      // observed one, so it must appear even though the shape is identical.
+      policyVersion: `${V2_ROUTE_BUDGET_POLICY_VERSION}${V2_ROUTE_FALLBACK_POLICY_SUFFIX}`,
+      maxInputBytes: 117_760,
+      maxOutputBytes: 32_768,
+    })
+  })
+
+  it('prefers the route the Turn actually used over any configured route', async () => {
+    const adapter = new DshV2RouteSnapshotAdapter(
+      llm({ context: { contextWindow: 128_000 }, defaultMaxTokens: 8_192 }),
+      { fallbackRoutes: () => [{ provider: 'workbuddy', model: 'deepseek-v4.1-flash' }] },
+    )
+
+    const snapshot = await adapter.capture('sl_session', [observation(10)])
+
+    expect(snapshot).toMatchObject({
+      provider: 'deepseek-official',
+      model: 'deepseek-chat',
+      policyVersion: V2_ROUTE_BUDGET_POLICY_VERSION,
+    })
+    expect(snapshot.policyVersion).not.toContain(V2_ROUTE_FALLBACK_POLICY_SUFFIX)
+  })
+
+  it('falls through to the next candidate when an earlier one cannot be resolved', async () => {
+    const port: DshLlmPort = {
+      resolveModelInfo: async provider => {
+        if (provider === 'retired') throw new Error('provider was removed')
+        return { context: { contextWindow: 32_000 } }
+      },
+      stream: async function * () { yield* [] },
+    }
+    const adapter = new DshV2RouteSnapshotAdapter(port, {
+      fallbackRoutes: () => [
+        { provider: 'retired', model: 'gone' },
+        { provider: 'workbuddy', model: 'deepseek-v4.1-flash' },
+      ],
+    })
+
+    await expect(adapter.capture('sl_session', [incomplete()])).resolves.toMatchObject({
+      provider: 'workbuddy',
+      model: 'deepseek-v4.1-flash',
+      policyVersion: `${V2_ROUTE_BUDGET_POLICY_VERSION}${V2_ROUTE_FALLBACK_POLICY_SUFFIX}`,
+    })
+  })
+
+  it('still reports an unavailable route when nothing is configured or every candidate fails', async () => {
+    const bare = new DshV2RouteSnapshotAdapter(llm({ context: { contextWindow: 32_000 } }))
+    await expect(bare.capture('sl_session', [incomplete()]))
+      .rejects.toThrow('ROUTE_OBSERVATION_UNAVAILABLE')
+
+    const broken = new DshV2RouteSnapshotAdapter(
+      llm({}),
+      { fallbackRoutes: () => [{ provider: 'workbuddy', model: 'deepseek-v4.1-flash' }] },
+    )
+    await expect(broken.capture('sl_session', [incomplete()]))
+      .rejects.toThrow('ROUTE_OBSERVATION_UNAVAILABLE')
+  })
+
+  it('keeps a half-configured route from becoming a candidate', async () => {
+    // A provider without a model is not a route. Sending traffic to "some model
+    // on this provider" would be a guess the user never made.
+    const adapter = new DshV2RouteSnapshotAdapter(
+      llm({ context: { contextWindow: 32_000 } }),
+      { fallbackRoutes: () => [] },
+    )
+    await expect(adapter.capture('sl_session', [incomplete()]))
+      .rejects.toThrow('ROUTE_OBSERVATION_UNAVAILABLE')
+  })
+
+  it('re-reads the configured routes on every capture so a settings change applies immediately', async () => {
+    let routes = [{ provider: 'first', model: 'one' }]
+    const adapter = new DshV2RouteSnapshotAdapter(
+      llm({ context: { contextWindow: 32_000 } }),
+      { fallbackRoutes: () => routes },
+    )
+
+    expect((await adapter.capture('sl_session', [incomplete()])).provider).toBe('first')
+    routes = [{ provider: 'second', model: 'two' }]
+    expect((await adapter.capture('sl_session', [incomplete()])).provider).toBe('second')
   })
 })

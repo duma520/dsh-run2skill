@@ -38,6 +38,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { createPurgeRpcHandler } from '../adapters/dsh-connection/purge-rpc.js'
 import { projectRuntimeAttention } from '../adapters/dsh-connection/attention-rpc.js'
 import { createRecallTelemetryRpcHandler } from '../adapters/dsh-connection/recall-telemetry-rpc.js'
+import { createModelCatalogRpcHandler } from '../adapters/dsh-connection/model-catalog-rpc.js'
 import { createV2RecentSkillActivityRpcHandler } from '../adapters/dsh-connection/v2-recent-skill-activity-rpc.js'
 import { createV2LearningStatusRpcHandler } from '../adapters/dsh-connection/v2-learning-status-rpc.js'
 import { createV2ProposalRpcHandler } from '../adapters/dsh-connection/v2-proposal-rpc.js'
@@ -105,7 +106,13 @@ import {
 import { HostMutationGate } from '../application/host-mutation-gate.js'
 import type { PurgeScopeBindingV1 } from '../domain/purge/index.js'
 import { DshV2ProductionRuntime } from './v2-production-runtime.js'
-import { retrievalSettings, RetrievalSettingsSchema, type RetrievalConfig } from '../adapters/dsh-settings/retrieval.js'
+import {
+  detectionRoute,
+  retrievalSettings,
+  RetrievalSettingsSchema,
+  type DetectionRoute,
+  type RetrievalConfig,
+} from '../adapters/dsh-settings/retrieval.js'
 import { PersistentVectorCache, type RetrievalStorageContext } from '../adapters/dsh-storage/retrieval-domain.js'
 import { attachFileLog } from '../adapters/dsh-logging/file-log.js'
 import { identifyGeneration } from '../adapters/dsh-logging/plugin-generation.js'
@@ -786,6 +793,23 @@ class Run2skillV2RuntimeFactory implements RecoveryRuntimeFactory {
     }
   }
 
+  /**
+   * Candidate routes for semantic detection, in preference order.
+   *
+   * Read on every batch rather than captured once, so editing the two fields on
+   * the settings page applies to the next batch without restarting DSH. The
+   * pinned route comes first, the fallback second, and either may be absent.
+   * An empty list keeps the strict behaviour: no observable route means the
+   * batch reports ROUTE_UNAVAILABLE instead of guessing a model.
+   */
+  detectionRoutes(): readonly DetectionRoute[] {
+    const settings = retrievalSettings(this.retrievalConfig)
+    return [
+      detectionRoute(settings.detectionProvider, settings.detectionModel),
+      detectionRoute(settings.fallbackProvider, settings.fallbackModel),
+    ].filter((route): route is DetectionRoute => route !== undefined)
+  }
+
   async resolveCurrentWorkspace(workspaceId: string) {
     const workspace = this.context.workspaceRegistry.get?.(workspaceId)
     if (
@@ -970,6 +994,7 @@ class Run2skillV2RuntimeFactory implements RecoveryRuntimeFactory {
         sessions,
         agents,
         llm: this.context.llm,
+        detectionRoutes: () => this.detectionRoutes(),
         skills: this.context.skills,
         workspace: new DshWorkspaceBindingResolver(this.context.workspaceRegistry),
         resolveWorkspace: workspaceId => this.resolveCurrentWorkspace(workspaceId),
@@ -1279,9 +1304,13 @@ export async function apply(context: Run2skillHostContext, config: RetrievalConf
     resolveCurrentWorkspace,
     v2Rpc,
   )
+  const modelCatalogRpc = createModelCatalogRpcHandler(
+    () => context.llm as unknown as DshLlmPort,
+    recallTelemetryRpc,
+  )
   const remoteHandler = createObserveSummaryRpcHandler(
     readSummary,
-    recallTelemetryRpc,
+    modelCatalogRpc,
   )
   new Run2skillRemoteService(context as unknown as Context, remoteHandler)
 

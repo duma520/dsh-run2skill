@@ -33,6 +33,7 @@ import {
   RetrievalSettingsSection,
   type ClientSettingsScope,
 } from './retrieval-settings.js'
+import { DetectionRouteSection, type ModelCatalogCall } from './detection-route-settings.js'
 import {
   ProposalInboxController,
   describeProposalOutcome,
@@ -1487,6 +1488,7 @@ export function Run2skillSettingsPage(props: {
   readonly callActivity: RecentSkillActivityCall
   readonly callRecallTelemetry?: RecallTelemetryCall
   readonly callLearningStatus?: LearningStatusCall
+  readonly callModelCatalog?: ModelCatalogCall
   readonly useSessions?: <T>(selector: (state: SessionSelectionSnapshot) => T) => T
   readonly useWorkspaces?: <T>(selector: (state: {
     readonly items: readonly { readonly workspaceId: string; readonly sessionIds?: readonly string[] }[]
@@ -1645,6 +1647,12 @@ export function Run2skillSettingsPage(props: {
         scopeGeneration,
         hostDataEpoch: purgeState.hostDataEpoch,
       }), createElement(Pill, null, '最近 30 天')),
+    disclosure('detection', '语义检测用哪个模型', createElement(IconSettingsOutlineMedium),
+      createElement('div', { className: css.sectionBody }, createElement(DetectionRouteSection, {
+        controller: props.controller,
+        ...(props.callModelCatalog === undefined ? {} : { callCatalog: props.callModelCatalog }),
+        active: hostTab.visible && open.has('detection'),
+      }))),
     disclosure('retrieval', 'Skill 召回', createElement(IconSettingsOutlineMedium),
       createElement('div', { className: css.sectionBody }, createElement(RetrievalSettingsSection, { controller: props.controller }))),
     disclosure('purge', '缓存清理', createElement(IconTrashOutlineMedium),
@@ -1715,6 +1723,10 @@ export async function applyRun2skillClient(context: Run2skillClientContext): Pro
   const callRecallTelemetry: RecallTelemetryCall = async (payload, signal) => await mounted.call(
     'recall-telemetry/list', payload, signal,
   )
+  const callModelCatalog: ModelCatalogCall = async (
+    payload: { readonly apiVersion: 1 },
+    signal: AbortSignal,
+  ) => await mounted.call('model-catalog/list', payload, signal)
   const callLearningStatus: LearningStatusCall = mounted.call
   const callPurge: PurgeCall = mounted.call
   const purgeController = new PurgeSettingsController(callPurge, () => (
@@ -1745,6 +1757,7 @@ export async function applyRun2skillClient(context: Run2skillClientContext): Pro
       callReview,
       callActivity,
       callRecallTelemetry,
+      callModelCatalog,
       callLearningStatus,
     }
   }

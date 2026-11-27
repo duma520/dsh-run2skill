@@ -113,6 +113,22 @@ export interface DshUserMessage {
 }
 
 export interface DshLlmPort {
+  /**
+   * Providers this installation can actually route to.
+   *
+   * Optional because the learning client never needs it: only the settings UI
+   * does, to show a real list instead of asking people to type provider ids
+   * from memory. Host wiring passes the live registry, which has both.
+   */
+  listProviders?(): readonly {
+    readonly id: string
+    readonly name?: string
+  }[]
+  /** Models one provider advertises; same optionality reasoning as above. */
+  listModels?(provider: string): Promise<readonly {
+    readonly id: string
+    readonly name?: string
+  }[]>
   resolveModelInfo(
     provider: string,
     model: string,

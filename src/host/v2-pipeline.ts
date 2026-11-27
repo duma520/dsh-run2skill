@@ -19,7 +19,7 @@ import { CompleteCatalogRecallWorker, type CompleteRecallCatalogPort } from '../
 import type { WorkspaceBindingPort } from '../application/capture/turn-capture-processor.js'
 import type { SessionBatchV2 } from '../domain/v2/index.js'
 import { HybridSkillRetrieval } from '../application/recall/hybrid-retrieval.js'
-import type { RetrievalSettings } from '../adapters/dsh-settings/retrieval.js'
+import type { DetectionRoute, RetrievalSettings } from '../adapters/dsh-settings/retrieval.js'
 import type { PersistentVectorCache } from '../adapters/dsh-storage/retrieval-domain.js'
 
 export interface DshV2PipelineCatalogPorts {
@@ -30,6 +30,11 @@ export interface DshV2PipelineCatalogPorts {
 export interface DshV2PipelineRuntimeOptions {
   readonly retrieval?: { settings(): RetrievalSettings; cache: Pick<PersistentVectorCache, 'table' | 'epoch'> }
   readonly llm: DshLlmPort
+  /**
+   * Routes to try when a batch carries no observable route, in preference
+   * order. Read on every batch so a settings change applies without a restart.
+   */
+  readonly detectionRoutes?: () => readonly DetectionRoute[]
   readonly baseline: {
     capture(sessionLifecycleKey: string): Promise<SessionBatchV2['batchManifestBaseline']>
   }
@@ -60,7 +65,9 @@ export class DshV2PipelineRuntime {
   ) {
     const stageClient = new DshV2StageLlmClient(options.llm)
     const retrieval = options.retrieval ? new HybridSkillRetrieval({ ...options.retrieval, reranker: stageClient }) : undefined
-    const routeSnapshot = new DshV2RouteSnapshotAdapter(options.llm)
+    const routeSnapshot = new DshV2RouteSnapshotAdapter(options.llm, options.detectionRoutes === undefined
+      ? {}
+      : { fallbackRoutes: options.detectionRoutes })
     const coordinator = new SessionBatchCoordinator(domain, {
       captureBaseline: sessionLifecycleKey => options.baseline.capture(sessionLifecycleKey),
       captureRouteSnapshot: (sessionLifecycleKey, observations) => (
