@@ -100,15 +100,15 @@ function oneRoute(
   settings: RetrievalSettings,
   catalog: CatalogState,
   disabled: boolean,
-  providerKey: 'detectionProvider' | 'fallbackProvider',
-  modelKey: 'detectionModel' | 'fallbackModel',
+  providerField: 'detectionProvider' | 'fallbackProvider',
+  modelField: 'detectionModel' | 'fallbackModel',
   providerLabel: string,
   modelLabel: string,
 ): ReactElement {
-  const provider = settings[providerKey]
+  const provider = settings[providerField]
   const models = catalog.providers.find(item => item.id === provider)?.models ?? []
   const selectable = catalog.phase === 'READY' && catalog.catalogAvailable && !disabled
-  return createElement('div', { key: providerKey },
+  return createElement('div', { key: providerField },
     createElement('label', null,
       createElement('span', null, providerLabel),
       selectable
@@ -123,8 +123,8 @@ function oneRoute(
             // silently drop the reset.
             const value = event.currentTarget.value
             void (async () => {
-              await controller.setField(providerKey, value)
-              await controller.setField(modelKey, '')
+              await controller.setField(providerField, value)
+              await controller.setField(modelField, '')
             })()
           },
         },
@@ -142,7 +142,7 @@ function oneRoute(
           placeholder: 'provider id',
           onBlur: (event: { currentTarget: { value: string } }) => {
             if (event.currentTarget.value.trim() !== provider) {
-              void controller.setField(providerKey, event.currentTarget.value.trim())
+              void controller.setField(providerField, event.currentTarget.value.trim())
             }
           },
         }),
@@ -152,9 +152,9 @@ function oneRoute(
       selectable && models.length > 0
         ? createElement('select', {
           'aria-label': modelLabel,
-          value: settings[modelKey],
+          value: settings[modelField],
           onChange: (event: { currentTarget: { value: string } }) => {
-            void controller.setField(modelKey, event.currentTarget.value)
+            void controller.setField(modelField, event.currentTarget.value)
           },
         },
         createElement('option', { value: '' }, '未选择'),
@@ -164,14 +164,14 @@ function oneRoute(
         : createElement('input', {
           type: 'text',
           'aria-label': modelLabel,
-          defaultValue: settings[modelKey],
+          defaultValue: settings[modelField],
           disabled: catalog.phase === 'LOADING' || disabled || provider.length === 0,
           spellCheck: false,
           maxLength: 256,
           placeholder: provider.length === 0 ? '先选 provider' : 'model id',
           onBlur: (event: { currentTarget: { value: string } }) => {
-            if (event.currentTarget.value.trim() !== settings[modelKey]) {
-              void controller.setField(modelKey, event.currentTarget.value.trim())
+            if (event.currentTarget.value.trim() !== settings[modelField]) {
+              void controller.setField(modelField, event.currentTarget.value.trim())
             }
           },
         }),
