@@ -18,6 +18,7 @@ export const RUN2SKILL_QUERY_ENDPOINTS = [
   'recent-activity/list',
   'recall-telemetry/list',
   'model-catalog/list',
+  'detection-routes/get',
   'learning/status',
   'learning/issues/list',
   'purge/preview',
@@ -34,6 +35,7 @@ export const RUN2SKILL_COMMAND_ENDPOINTS = [
   'learning/request',
   'learning/issues/retry',
   'learning/issues/dismiss',
+  'detection-routes/set',
   'purge/confirm',
   'purge/retry',
 ] as const

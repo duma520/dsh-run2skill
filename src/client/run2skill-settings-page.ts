@@ -33,7 +33,12 @@ import {
   RetrievalSettingsSection,
   type ClientSettingsScope,
 } from './retrieval-settings.js'
-import { DetectionRouteSection, type ModelCatalogCall } from './detection-route-settings.js'
+import {
+  DetectionRouteSection,
+  type DetectionRoutesCall,
+  type ModelCatalogCall,
+  type SaveDetectionRoutesCall,
+} from './detection-route-settings.js'
 import {
   ProposalInboxController,
   describeProposalOutcome,
@@ -1490,6 +1495,8 @@ export function Run2skillSettingsPage(props: {
   readonly callRecallTelemetry?: RecallTelemetryCall
   readonly callLearningStatus?: LearningStatusCall
   readonly callModelCatalog?: ModelCatalogCall
+  readonly callDetectionRoutes?: DetectionRoutesCall
+  readonly saveDetectionRoutes?: SaveDetectionRoutesCall
   readonly useSessions?: <T>(selector: (state: SessionSelectionSnapshot) => T) => T
   readonly useWorkspaces?: <T>(selector: (state: {
     readonly items: readonly { readonly workspaceId: string; readonly sessionIds?: readonly string[] }[]
@@ -1650,8 +1657,9 @@ export function Run2skillSettingsPage(props: {
       }), createElement(Pill, null, '最近 30 天')),
     disclosure('detection', '语义检测用哪个模型', createElement(IconSettingsOutlineMedium),
       createElement('div', { className: css.sectionBody }, createElement(DetectionRouteSection, {
-        controller: props.controller,
         ...(props.callModelCatalog === undefined ? {} : { callCatalog: props.callModelCatalog }),
+        ...(props.callDetectionRoutes === undefined ? {} : { callRoutes: props.callDetectionRoutes }),
+        ...(props.saveDetectionRoutes === undefined ? {} : { saveRoutes: props.saveDetectionRoutes }),
         active: hostTab.visible && open.has('detection'),
       }))),
     disclosure('retrieval', 'Skill 召回', createElement(IconSettingsOutlineMedium),
@@ -1728,6 +1736,17 @@ export async function applyRun2skillClient(context: Run2skillClientContext): Pro
     payload: { readonly apiVersion: 1 },
     signal: AbortSignal,
   ) => await mounted.call('model-catalog/list', payload, signal)
+  const callDetectionRoutes: DetectionRoutesCall = async (
+    payload: { readonly apiVersion: 1 },
+    signal: AbortSignal,
+  ) => await mounted.call('detection-routes/get', payload, signal)
+  const saveDetectionRoutes: SaveDetectionRoutesCall = async (
+    payload: {
+      readonly apiVersion: 1
+      readonly candidates: readonly { readonly provider: string; readonly model: string }[]
+    },
+    signal: AbortSignal,
+  ) => await mounted.call('detection-routes/set', payload, signal)
   const callLearningStatus: LearningStatusCall = mounted.call
   const callPurge: PurgeCall = mounted.call
   const purgeController = new PurgeSettingsController(callPurge, () => (
@@ -1759,6 +1778,8 @@ export async function applyRun2skillClient(context: Run2skillClientContext): Pro
       callActivity,
       callRecallTelemetry,
       callModelCatalog,
+      callDetectionRoutes,
+      saveDetectionRoutes,
       callLearningStatus,
     }
   }

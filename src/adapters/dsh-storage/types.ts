@@ -28,10 +28,12 @@ export interface Run2skillStorageContext {
       | typeof import('./domain.js').run2skillDomainSpec
       | typeof import('./learning-diagnostic-domain.js').learningDiagnosticDomainSpec
       | typeof import('./v2-domain.js').run2skillV2DomainSpec
+      | typeof import('./route-preference-domain.js').routePreferenceDomainSpec
     ): Promise<
       | Run2skillDomain
       | import('./learning-diagnostic-domain.js').LearningDiagnosticDomain
       | import('./v2-types.js').Run2skillV2Domain
+      | import('./route-preference-domain.js').RoutePreferenceDomain
     >
   }
 }

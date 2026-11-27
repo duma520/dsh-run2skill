@@ -36,8 +36,24 @@ function turnEvents(header: DshSessionHeader): DshSessionEvent[] {
   ]
 }
 
-function alpha2Persistence(legacy: SessionPersistencePort): DshSessionPersistencePort {
+/**
+ * 「语义检测优先次序」那个存储域的空替身。
+ *
+ * 一次激活会开两个域：v2 学习主库，以及这个只放一条 UI 偏好的小域。
+ * 这些测试关心的是主库，所以给它一个永远空着的替身即可。
+ */
+function emptyRoutePreferenceDomain() {
   return {
+    name: 'run2skill_route_preference_v1' as const,
+    global: {
+      get: () => ({ version: 1 as const, candidates: [] }),
+      set: async () => {},
+    },
+    close: async () => {},
+  }
+}
+
+function alpha2Persistence(legacy: SessionPersistencePort): DshSessionPersistencePort {  return {
     async list(options) {
       return await legacy.listSnapshots(options?.signal)
     },
@@ -121,7 +137,15 @@ describe('Host plugin v2 production cutover', () => {
           return { meta: header, events: events.filter(event => event.seq >= fromSeq) }
         },
       }),
-      storageDomain: { async open() { order.push('run2skill_v2-open'); return domain } },
+      // 一次激活会开两个存储域：v2 学习主库，以及「语义检测优先次序」那个小域。
+      // 断言只关心主库只开一次，所以按 spec 名区分，别把两个域算成一个。
+      storageDomain: {
+        async open(spec: { readonly name: string }) {
+          if (spec.name !== 'run2skill_v2') return emptyRoutePreferenceDomain()
+          order.push('run2skill_v2-open')
+          return domain
+        },
+      },
       workspaceRegistry: {
         async resolveByPath() { return { id: 'workspace-1', path: 'D:/workspace' } },
         get() { return { id: 'workspace-1', path: 'D:/workspace' } },
@@ -179,7 +203,11 @@ describe('Host plugin v2 production cutover', () => {
           return { meta: header, events: events.filter(event => event.seq >= fromSeq) }
         },
       }),
-      storageDomain: { async open() { return domain } },
+      storageDomain: {
+        async open(spec: { readonly name: string }) {
+          return spec.name === 'run2skill_v2' ? domain : emptyRoutePreferenceDomain()
+        },
+      },
       workspaceRegistry: { async resolveByPath() { return undefined } },
       connection: { rpc: { handle() { return async () => undefined } } },
       on() {},
@@ -199,7 +227,11 @@ describe('Host plugin v2 production cutover', () => {
       sessionPersistence: alpha2Persistence({
         async listSnapshots() { return [] }, async readFrom() { throw new Error('unused') },
       }),
-      storageDomain: { async open() { return domain } },
+      storageDomain: {
+        async open(spec: { readonly name: string }) {
+          return spec.name === 'run2skill_v2' ? domain : emptyRoutePreferenceDomain()
+        },
+      },
       workspaceRegistry: { async resolveByPath() { return undefined } },
       connection: { rpc: { handle() { return async () => undefined } } },
       on(event: string, listener: (...args: never[]) => unknown) {
@@ -257,7 +289,11 @@ describe('Host plugin v2 production cutover', () => {
           return { meta: header, events: events.filter(event => event.seq >= fromSeq) }
         },
       }),
-      storageDomain: { async open() { return domain } },
+      storageDomain: {
+        async open(spec: { readonly name: string }) {
+          return spec.name === 'run2skill_v2' ? domain : emptyRoutePreferenceDomain()
+        },
+      },
       workspaceRegistry: {
         async resolveByPath() { return { id: 'workspace-1', path: 'D:/workspace' } },
         get() { return { id: 'workspace-1', path: 'D:/workspace' } },
@@ -303,7 +339,11 @@ describe('Host plugin v2 production cutover', () => {
       sessionPersistence: alpha2Persistence({
         async listSnapshots() { return [] }, async readFrom() { throw new Error('unused') },
       }),
-      storageDomain: { async open() { return domain } },
+      storageDomain: {
+        async open(spec: { readonly name: string }) {
+          return spec.name === 'run2skill_v2' ? domain : emptyRoutePreferenceDomain()
+        },
+      },
       workspaceRegistry: { async resolveByPath() { return undefined } },
       connection: { rpc: { handle() { return async () => undefined } } },
       on(event: string, listener: (...args: never[]) => unknown) {
@@ -333,7 +373,11 @@ describe('Host plugin v2 production cutover', () => {
       sessionPersistence: alpha2Persistence({
         async listSnapshots() { return [] }, async readFrom() { throw new Error('unused') },
       }),
-      storageDomain: { async open() { return domain } },
+      storageDomain: {
+        async open(spec: { readonly name: string }) {
+          return spec.name === 'run2skill_v2' ? domain : emptyRoutePreferenceDomain()
+        },
+      },
       workspaceRegistry: { async resolveByPath() { return undefined } },
       on() {},
     }

@@ -114,6 +114,9 @@ import {
   type RetrievalConfig,
 } from '../adapters/dsh-settings/retrieval.js'
 import { PersistentVectorCache, type RetrievalStorageContext } from '../adapters/dsh-storage/retrieval-domain.js'
+import { RoutePreferenceStore } from '../adapters/dsh-storage/route-preference-domain.js'
+import { routePreferenceToRoutes } from '../domain/retrieval/route-preference.js'
+import { createDetectionRoutesRpcHandler } from '../adapters/dsh-connection/detection-routes-rpc.js'
 import { attachFileLog } from '../adapters/dsh-logging/file-log.js'
 import { identifyGeneration } from '../adapters/dsh-logging/plugin-generation.js'
 import { projectRuntimeGeneration } from '../adapters/dsh-connection/attention-rpc.js'
@@ -681,6 +684,13 @@ export class Run2skillRuntimeFactory implements RecoveryRuntimeFactory {
 class Run2skillV2RuntimeFactory implements RecoveryRuntimeFactory {
   currentV2Domain: Run2skillV2Domain | undefined
   currentV2Runtime: DshV2ProductionRuntime<LearningSkillView<Run2skillAgent>> | undefined
+  /**
+   * 用户在设置页排的语义检测优先次序。
+   *
+   * 放在工厂上（而不是每个批次重新构造）是因为它要跨批次保持同一个打开的域句柄，
+   * 但读值仍然是每批次现读的同步快照，所以改完下一批次立刻生效。
+   */
+  readonly routePreference: RoutePreferenceStore
   readonly #stockConfigurations: StockSkillRuntimeConfigurationCache<Run2skillAgent>
   readonly #workspaceBindings = new WeakMap<Run2skillAgent, {
     readonly workspaceId: string
@@ -717,6 +727,7 @@ class Run2skillV2RuntimeFactory implements RecoveryRuntimeFactory {
     this.#stockConfigurations = new StockSkillRuntimeConfigurationCache<Run2skillAgent>(
       async agent => await resolveStockSkillRuntimeConfiguration(stockPresetMounts, agent, STOCK_PRESET_COMPOSITION_DIGESTS.standard),
     )
+    this.routePreference = new RoutePreferenceStore(context)
   }
 
   wakeLearning(): void { this.currentV2Runtime?.pipeline.wake() }
@@ -803,6 +814,10 @@ class Run2skillV2RuntimeFactory implements RecoveryRuntimeFactory {
    * batch reports ROUTE_UNAVAILABLE instead of guessing a model.
    */
   detectionRoutes(): readonly DetectionRoute[] {
+    // 用户排的优先次序优先。空列表时回落到 Config 里那两段旧字段，保证
+    // 「没动过设置页」的既有装置行为一模一样（不新增、不减少可尝试的路由）。
+    const preferred = routePreferenceToRoutes(this.routePreference.current())
+    if (preferred.length > 0) return preferred
     const settings = retrievalSettings(this.retrievalConfig)
     return [
       detectionRoute(settings.detectionProvider, settings.detectionModel),
@@ -909,6 +924,9 @@ class Run2skillV2RuntimeFactory implements RecoveryRuntimeFactory {
     let runtime: DshV2ProductionRuntime<LearningSkillView<Run2skillAgent>> | undefined
     try {
       domain = await openRun2skillV2Domain(this.context)
+      // 语义检测优先次序是纯 UI 偏好，存它自己的域。打不开不算致命：
+      // 读回来就是空列表，detectionRoutes() 会回落到 Config 的旧字段。
+      await this.routePreference.open()
       const publicationAbort = new AbortController()
       await this.#hydrateDormantSessions()
       const viewForAgent = (agent: Run2skillAgent): LearningSkillView<Run2skillAgent> => ({
@@ -1027,6 +1045,7 @@ class Run2skillV2RuntimeFactory implements RecoveryRuntimeFactory {
             await activeRuntime.close()
           } finally {
             this.#dormantSessions.clear()
+            await this.routePreference.close().catch(() => undefined)
           }
         },
       }
@@ -1308,9 +1327,13 @@ export async function apply(context: Run2skillHostContext, config: RetrievalConf
     () => context.llm as unknown as DshLlmPort,
     recallTelemetryRpc,
   )
+  const detectionRoutesRpc = createDetectionRoutesRpcHandler(
+    () => factory.routePreference,
+    modelCatalogRpc,
+  )
   const remoteHandler = createObserveSummaryRpcHandler(
     readSummary,
-    modelCatalogRpc,
+    detectionRoutesRpc,
   )
   new Run2skillRemoteService(context as unknown as Context, remoteHandler)
 

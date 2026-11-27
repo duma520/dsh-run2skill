@@ -1,53 +1,30 @@
 .page {
   display: grid;
   gap: 14px;
-  width: min(100%, 960px);
+  /* 撑满父容器宽度即可；高度完全交给父容器，自己不设上界。 */
+  width: 100%;
+  max-width: 960px;
   min-width: 0;
   padding: 8px 0 32px;
   color: var(--dsw-alias-label-primary);
   font-size: 14px;
   line-height: 1.6;
   /*
-   * 宿主给的面板容器是有定高的，页面自己不声明高度与溢出时，超出的部分会被
-   * 直接裁掉（内容多到「待处理」列表一半时，下面就再也看不到、也滚不动）。
-   * 这里让根节点撑满父容器并自己纵向滚动。
-   * 父容器若没定高，height:100% 会退化成 auto，滚动交回外层，不会出现双滚动条。
+   * 这里绝对不能再声明 height / max-height / overflow-y。
+   *
+   * 两条挂载路径的父容器都已经是滚动容器了：
+   *  - 插件详情页：`plugins.bundle.config` 渲染在 PluginManagerPage 的 `.pageBody` 内，
+   *    那个节点是 `flex:1; min-height:0; overflow-y:auto`，页面应当只贡献高度；
+   *  - 左侧栏 main 槽位：`.mainPanel` 是 `flex:1; min-height:0` 的定高列。
+   *
+   * 早先这里写了 `height:100%; max-height:calc(100vh - 88px); overflow-y:auto`，
+   * 等于在一个已经能滚的容器里再套一层高度算错的自滚容器：88px 与实际可用高度无关，
+   * 内容于是长到 100vh-88px 就被外层裁掉，而外层因为被这层「占满」反而不触发滚动
+   * —— 表现为「下面几块看不见，也没有滚动条」。v1.6.2 那次修的还是这一层，
+   * 方向反了，所以没修好。
+   *
+   * 现在回到最朴素的做法：普通块级高度，滚动完全交回宿主。
    */
-  height: 100%;
-  /*
-   * height:100% 只在父容器有定高时才成立。侧栏 main 槽位的容器没定高，
-   * 那条 100% 会退化成 auto，于是既撑不满也不滚——内容照样被裁在可视区外。
-   * 补一条相对视口的 max-height 兜底：无论父容器定不定高，这里都有上界，
-   * 超出即滚。两个都用不会出现双滚动条（取更小的那个上界）。
-   */
-  max-height: calc(100vh - 88px);
-  min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-  overscroll-behavior: contain;
-  scrollbar-gutter: stable;
-  /* 宿主的部分主题把全局滚动条宽度设成 0，导致有滚动区却看不见。
-     这里显式给一条细滚动条，让「能滚」这件事本身可见。 */
-  scrollbar-width: thin;
-}
-
-.page::-webkit-scrollbar {
-  width: 10px;
-}
-
-.page::-webkit-scrollbar-thumb {
-  border: 2px solid transparent;
-  border-radius: 8px;
-  background-clip: content-box;
-  background-color: var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.22));
-}
-
-.page::-webkit-scrollbar-thumb:hover {
-  background-color: var(--dsw-alias-label-secondary, rgba(0, 0, 0, 0.4));
-}
-
-.page::-webkit-scrollbar-track {
-  background: transparent;
 }
 
 .muted {
@@ -127,6 +104,89 @@
 
 .page [data-run2skill-retrieval] h4 { margin: 20px 0 8px; }
 .page [data-run2skill-retrieval] p { color: var(--dsw-alias-label-secondary); font-size: 13px; }
+
+/*
+ * 语义检测优先次序。
+ *
+ * 这块以前完全没有布局规则，两个 select 没有 flex / min-width / padding，
+ * 结果 provider 下拉吃掉几乎整行、模型下拉被挤成几十像素、还会和左边标签挤在
+ * 同一行（现场截图就是这个样子）。下面按「序号 + provider + model + 三个操作按钮」
+ * 排成一行，窄屏时自动换行成两行，不再互相挤。
+ */
+.page [data-run2skill-detection-route] p { color: var(--dsw-alias-label-secondary); font-size: 13px; }
+
+.page [data-run2skill-detection-route] ul[data-run2skill-route-list] {
+  display: grid;
+  gap: 10px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.page [data-run2skill-detection-route] ul[data-run2skill-route-list] > li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.page [data-run2skill-detection-route] [data-run2skill-route-rank] {
+  flex: none;
+  min-width: 20px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.page [data-run2skill-detection-route] input[type='text'],
+.page [data-run2skill-detection-route] select {
+  box-sizing: border-box;
+  flex: 1 1 160px;
+  min-width: 0;
+  padding: 8px 10px;
+  color: inherit;
+  background: var(--dsw-alias-bg-layer-1);
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  font: inherit;
+}
+
+/* provider 与 model 两栏大致等宽；窄屏时各自独占一行。 */
+.page [data-run2skill-detection-route] ul[data-run2skill-route-list] > li > :nth-child(2),
+.page [data-run2skill-detection-route] ul[data-run2skill-route-list] > li > :nth-child(3) {
+  flex: 1 1 220px;
+}
+
+.page [data-run2skill-detection-route] button {
+  flex: none;
+  padding: 6px 10px;
+  color: inherit;
+  background: var(--dsw-alias-bg-layer-2);
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.page [data-run2skill-detection-route] button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.page [data-run2skill-detection-route] button[data-run2skill-route-add] {
+  justify-self: start;
+  margin-top: 4px;
+}
+
+@container (max-width: 34rem) {
+  /* 容器窄到放不下「序号 + 两个下拉 + 三个按钮」时，操作按钮单独换到下一行。 */
+  .page [data-run2skill-detection-route] ul[data-run2skill-route-list] > li > button {
+    flex: 0 0 auto;
+  }
+}
 
 .publicationFeedback {
   display: grid;

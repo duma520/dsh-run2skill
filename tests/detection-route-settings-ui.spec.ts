@@ -2,172 +2,185 @@
 import { createElement } from 'react'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
-import { RetrievalSettingsController } from '../src/client/retrieval-settings.js'
-import { DetectionRouteSection, type ModelCatalogCall } from '../src/client/detection-route-settings.js'
-import type { ClientSettingsScopeSnapshot } from '../src/client/retrieval-settings.js'
-import type { RetrievalSettings } from '../src/domain/retrieval/settings.js'
+import {
+  DetectionRouteSection,
+  type DetectionRoutesCall,
+  type ModelCatalogCall,
+  type SaveDetectionRoutesCall,
+} from '../src/client/detection-route-settings.js'
 
 afterEach(cleanup)
 
-function harness(catalog?: ModelCatalogCall) {
-  let snapshot: ClientSettingsScopeSnapshot<Partial<RetrievalSettings>> = {
-    status: 'ready', value: {}, revision: 1, writable: true,
-  }
-  const listeners = new Set<() => void>()
-  const set = vi.fn(async (key: string, value: unknown) => {
-    snapshot = { ...snapshot, value: { ...snapshot.value!, [key]: value }, revision: snapshot.revision! + 1 }
-    for (const listener of listeners) listener()
-    return true
-  })
-  const controller = new RetrievalSettingsController({
-    getSnapshot: () => snapshot,
-    subscribe: callback => { listeners.add(callback); return () => { listeners.delete(callback) } },
-    set,
-  })
-  render(createElement(DetectionRouteSection, { controller, ...(catalog === undefined ? {} : { callCatalog: catalog }) }))
-  return { controller, set, snapshot: () => snapshot }
+interface Rendered {
+  readonly saved: ReturnType<typeof vi.fn>
+  readonly rows: () => { provider: string; model: string }[]
 }
 
-// The remote caller always answers with the { ok, value } carrier; every other
-// section parses that shape too. Fixtures return the carrier so this test keeps
-// guarding what the host actually sends rather than a payload shape nobody
-// produces.
-const catalogWith = (providers: unknown): ModelCatalogCall => async () => ({
-  ok: true,
-  value: { apiVersion: 1, catalogAvailable: true, providers },
+/**
+ * 渲染优先次序区块。
+ *
+ * 负载一律走 `{ ok, value }` carrier —— 宿主真实就是这么回的，其它区块也都按这个
+ * 形状解析。用真形状当夹具，测的才是宿主真发的东西，而不是我们自己臆想的形状。
+ */
+function harness(options: {
+  readonly providers?: readonly unknown[]
+  readonly stored?: readonly { provider: string; model: string }[]
+  readonly readError?: string
+  readonly saveError?: string
+} = {}): Rendered {
+  const providers = options.providers ?? []
+  const callCatalog: ModelCatalogCall = async () => ({
+    ok: true,
+    value: { apiVersion: 1, catalogAvailable: providers.length > 0, providers },
+  })
+  const callRoutes: DetectionRoutesCall = async () => (options.readError === undefined
+    ? { ok: true, value: { apiVersion: 1, candidates: options.stored ?? [] } }
+    : { ok: false, error: { code: 'unavailable', message: options.readError, details: {} } })
+  const saved = vi.fn(async (payload: { candidates: readonly { provider: string; model: string }[] }) => {
+    if (options.saveError !== undefined) {
+      return { ok: false, error: { code: 'unavailable', message: options.saveError, details: {} } }
+    }
+    return { ok: true, value: { apiVersion: 1, candidates: payload.candidates } }
+  })
+  const saveRoutes: SaveDetectionRoutesCall = async payload => saved(payload)
+  render(createElement(DetectionRouteSection, { callCatalog, callRoutes, saveRoutes }))
+  return { saved, rows: () => (saved.mock.calls.at(-1)?.[0]?.candidates ?? []) as { provider: string; model: string }[] }
+}
+
+const twoProviders = [
+  { id: 'workbuddy', name: 'WorkBuddy', models: [{ id: 'deepseek-v4.1-flash', name: 'DeepSeek V4.1 Flash' }] },
+  { id: 'doubao', name: 'Doubao', models: [{ id: 'person-deepseek', name: 'Person DeepSeek' }] },
+]
+
+it('shows the stored order back to the user with its rank', async () => {
+  harness({
+    providers: twoProviders,
+    stored: [
+      { provider: 'workbuddy', model: 'deepseek-v4.1-flash' },
+      { provider: 'doubao', model: 'person-deepseek' },
+    ],
+  })
+  await waitFor(() => expect(screen.getByText(/已排 2 个候选/)).toBeTruthy())
+  expect((screen.getByLabelText('第 1 个 provider') as HTMLSelectElement).value).toBe('workbuddy')
+  expect((screen.getByLabelText('第 2 个 provider') as HTMLSelectElement).value).toBe('doubao')
+  expect((screen.getByLabelText('第 1 个模型') as HTMLSelectElement).value).toBe('deepseek-v4.1-flash')
 })
 
-it('starts with no pinned route and says detection follows the Turn until one is chosen', async () => {
-  const { controller } = harness()
-  await waitFor(() => expect(screen.getByText(/读不到模型清单|当前 DSH 版本不提供模型清单/)).toBeTruthy())
-  expect(screen.getByLabelText('语义检测 provider')).toBeTruthy()
-  expect((screen.getByLabelText('语义检测 provider') as HTMLInputElement).value).toBe('')
-  expect(screen.getByText(/未指定。检测只会使用这一轮对话自己记录的模型/)).toBeTruthy()
-  expect(screen.getByText(/未指定兜底。主选解析失败时不会自动换别的模型/)).toBeTruthy()
-  controller.dispose()
+it('says what happens when nothing is configured yet', async () => {
+  harness()
+  await waitFor(() => expect(screen.getByText(/当前没有任何候选/)).toBeTruthy())
+  expect(screen.getByText(/记不到就把这一条标成待处理/)).toBeTruthy()
 })
 
-it('offers the installed providers as a select and clears the model when the provider changes', async () => {
-  const { controller, set } = harness(catalogWith([
-    { id: 'workbuddy', name: 'WorkBuddy', models: [{ id: 'deepseek-v4.1-flash', name: 'DeepSeek V4.1 Flash' }] },
-    { id: 'doubao', models: [{ id: 'person-deepseek-v4-1-flash-261017' }] },
-  ]))
-
-  await waitFor(() => expect(screen.getByText('下面是这台设备已经接通的 provider 与模型。')).toBeTruthy())
-  const provider = screen.getByLabelText('语义检测 provider') as HTMLSelectElement
-  expect(provider.tagName).toBe('SELECT')
-  // "不指定（跟随会话）" must stay first so the strict behaviour remains reachable.
-  expect(provider.options[0]!.value).toBe('')
-  expect(provider.options[1]!.textContent).toBe('WorkBuddy（workbuddy）')
-
-  fireEvent.change(provider, { target: { value: 'workbuddy' } })
-  await waitFor(() => expect(set).toHaveBeenCalledWith('detectionProvider', 'workbuddy'))
-  // Changing provider must also clear the model: a model id from another
-  // provider is a pair that cannot resolve.
-  expect(set).toHaveBeenCalledWith('detectionModel', '')
-  controller.dispose()
+it('adds an empty row and saves it as an incomplete row the host can normalise', async () => {
+  const { rows } = harness({ providers: twoProviders })
+  await waitFor(() => expect(screen.getByText('新增一个候选')).toBeTruthy())
+  fireEvent.click(screen.getByText('新增一个候选'))
+  await waitFor(() => expect(rows().length).toBe(1))
+  // 空行照实送到宿主；宿主那边会跳过半截行，界面不该自己先删掉用户正在填的行。
+  expect(rows()[0]).toEqual({ provider: '', model: '' })
 })
 
-it('falls back to free text when the host has no model catalog', async () => {
-  const { controller, set } = harness(async () => ({ ok: true, value: { apiVersion: 1, catalogAvailable: false, providers: [] } }))
-
-  await waitFor(() => expect(screen.getByText(/当前 DSH 版本不提供模型清单/)).toBeTruthy())
-  const provider = screen.getByLabelText('语义检测 provider') as HTMLInputElement
-  expect(provider.tagName).toBe('INPUT')
-  fireEvent.change(provider, { target: { value: '  workbuddy  ' } })
-  fireEvent.blur(provider)
-  await waitFor(() => expect(set).toHaveBeenCalledWith('detectionProvider', 'workbuddy'))
-  controller.dispose()
+it('moves a row up and persists the new order', async () => {
+  const { rows } = harness({
+    providers: twoProviders,
+    stored: [
+      { provider: 'workbuddy', model: 'deepseek-v4.1-flash' },
+      { provider: 'doubao', model: 'person-deepseek' },
+    ],
+  })
+  await waitFor(() => expect(screen.getByLabelText('把第 2 个往上移')).toBeTruthy())
+  fireEvent.click(screen.getByLabelText('把第 2 个往上移'))
+  await waitFor(() => expect(rows().map(row => row.provider)).toEqual(['doubao', 'workbuddy']))
 })
 
-it('keeps the model box closed until a provider is chosen', async () => {
-  const { controller } = harness()
-  await waitFor(() => expect(screen.getByLabelText('语义检测模型')).toBeTruthy())
-  expect((screen.getByLabelText('语义检测模型') as HTMLInputElement).disabled).toBe(true)
-  expect((screen.getByLabelText('语义检测模型') as HTMLInputElement).placeholder).toBe('先选 provider')
-  controller.dispose()
+it('disables moving past either end and deleting is always available', async () => {
+  harness({
+    providers: twoProviders,
+    stored: [
+      { provider: 'workbuddy', model: 'deepseek-v4.1-flash' },
+      { provider: 'doubao', model: 'person-deepseek' },
+    ],
+  })
+  await waitFor(() => expect(screen.getByLabelText('把第 1 个往上移')).toBeTruthy())
+  expect((screen.getByLabelText('把第 1 个往上移') as HTMLButtonElement).disabled).toBe(true)
+  expect((screen.getByLabelText('把第 2 个往下移') as HTMLButtonElement).disabled).toBe(true)
+  expect((screen.getByLabelText('删除第 1 个') as HTMLButtonElement).disabled).toBe(false)
 })
 
-it('describes the pinned and fallback routes once both halves are filled in', async () => {
-  const { controller } = harness(catalogWith([
-    { id: 'workbuddy', models: [{ id: 'deepseek-v4.1-flash' }] },
-    { id: 'doubao', models: [{ id: 'person-deepseek-v4-1-flash-261017' }] },
-  ]))
-  await waitFor(() => expect(screen.getByText('下面是这台设备已经接通的 provider 与模型。')).toBeTruthy())
-
-  fireEvent.change(screen.getByLabelText('语义检测 provider'), { target: { value: 'workbuddy' } })
-  await waitFor(() => expect(screen.getByLabelText('语义检测模型')).toBeTruthy())
-  fireEvent.change(screen.getByLabelText('语义检测模型'), { target: { value: 'deepseek-v4.1-flash' } })
-  await waitFor(() => expect(screen.getByText(/已指定：检测时优先用 workbuddy \/ deepseek-v4\.1-flash/)).toBeTruthy())
-  // The observed route still wins when a Turn has one.
-  expect(screen.getByText(/仍然优先用那一轮的/)).toBeTruthy()
-
-  fireEvent.change(screen.getByLabelText('兜底 provider'), { target: { value: 'doubao' } })
-  await waitFor(() => expect(screen.getByLabelText('兜底模型')).toBeTruthy())
-  fireEvent.change(screen.getByLabelText('兜底模型'), { target: { value: 'person-deepseek-v4-1-flash-261017' } })
-  await waitFor(() => expect(screen.getByText(/已指定兜底：doubao \/ person-deepseek-v4-1-flash-261017/)).toBeTruthy())
-  controller.dispose()
-})
-
-it('surfaces a host that cannot be reached as "type it yourself" rather than an empty picker', async () => {
-  const { controller } = harness(async () => { throw new Error('offline') })
-  await waitFor(() => expect(screen.getByText(/读不到模型清单/)).toBeTruthy())
-  expect((screen.getByLabelText('语义检测 provider') as HTMLInputElement).tagName).toBe('INPUT')
-  controller.dispose()
-})
-
-it('keeps a provider that could not list its models out of the model choices', async () => {
-  const { controller } = harness(catalogWith([
-    { id: 'broken', models: [], unavailable: true },
-    { id: 'workbuddy', models: [{ id: 'deepseek-v4.1-flash' }] },
-  ]))
-  await waitFor(() => expect(screen.getByText('下面是这台设备已经接通的 provider 与模型。')).toBeTruthy())
-
-  fireEvent.change(screen.getByLabelText('语义检测 provider'), { target: { value: 'broken' } })
-  await waitFor(() => expect(screen.getByLabelText('语义检测模型')).toBeTruthy())
-  // No models were returned, so the model box must stay free text instead of
-  // showing an empty select the user cannot fill.
-  expect((screen.getByLabelText('语义检测模型') as HTMLInputElement).tagName).toBe('INPUT')
-  controller.dispose()
-})
-
-it('offers a provider dropdown once the host reports a catalog', async () => {
-  harness(catalogWith([
-    { id: 'workbuddy', name: 'WorkBuddy', models: [{ id: 'deepseek-v4.1-flash', name: 'DeepSeek V4.1 Flash' }] },
-    { id: 'doubao', name: 'Doubao', models: [{ id: 'person-deepseek', name: 'Person DeepSeek' }] },
-  ]))
-  await waitFor(() => expect(screen.getByText(/下面是这台设备已经接通的 provider 与模型/)).toBeTruthy())
-  // A dropdown, not a free-text box: the whole point of reading the catalog.
-  const provider = screen.getByLabelText('语义检测 provider') as HTMLSelectElement
-  expect(provider.tagName).toBe('SELECT')
-  const options = [...provider.options].map(option => option.value)
-  expect(options).toEqual(['', 'workbuddy', 'doubao'])
-  // Model stays empty until a provider is chosen, and only ever lists that provider's models.
-  const model = screen.getByLabelText('语义检测模型') as HTMLSelectElement
-  expect(model.tagName).toBe('SELECT')
-  expect([...model.options].map(option => option.value)).toEqual([''])
+it('removes a row and persists the shorter list', async () => {
+  const { rows } = harness({
+    providers: twoProviders,
+    stored: [
+      { provider: 'workbuddy', model: 'deepseek-v4.1-flash' },
+      { provider: 'doubao', model: 'person-deepseek' },
+    ],
+  })
+  await waitFor(() => expect(screen.getByLabelText('删除第 1 个')).toBeTruthy())
+  fireEvent.click(screen.getByLabelText('删除第 1 个'))
+  await waitFor(() => expect(rows()).toEqual([{ provider: 'doubao', model: 'person-deepseek' }]))
 })
 
 it('clears the model when the provider changes so a cross-provider pair cannot be saved', async () => {
-  const { set } = harness(catalogWith([
-    { id: 'workbuddy', name: 'WorkBuddy', models: [{ id: 'deepseek-v4.1-flash', name: 'Flash' }] },
-    { id: 'doubao', name: 'Doubao', models: [{ id: 'person-deepseek', name: 'Person' }] },
-  ]))
-  await waitFor(() => expect(screen.getByText(/下面是这台设备已经接通的 provider 与模型/)).toBeTruthy())
-  const provider = screen.getByLabelText('语义检测 provider') as HTMLSelectElement
-  fireEvent.change(provider, { target: { value: 'workbuddy' } })
-  await waitFor(() => expect(set).toHaveBeenCalledWith('detectionProvider', 'workbuddy'))
-  const model = screen.getByLabelText('语义检测模型') as HTMLSelectElement
-  expect([...model.options].map(option => option.value)).toEqual(['', 'deepseek-v4.1-flash'])
-  fireEvent.change(model, { target: { value: 'deepseek-v4.1-flash' } })
-  await waitFor(() => expect(set).toHaveBeenCalledWith('detectionModel', 'deepseek-v4.1-flash'))
-  // Switching provider must drop the model in the same edit, not leave a stale pair.
-  fireEvent.change(provider, { target: { value: 'doubao' } })
-  await waitFor(() => expect(set).toHaveBeenCalledWith('detectionModel', ''))
+  const { rows } = harness({
+    providers: twoProviders,
+    stored: [{ provider: 'workbuddy', model: 'deepseek-v4.1-flash' }],
+  })
+  await waitFor(() => expect(screen.getByLabelText('第 1 个 provider')).toBeTruthy())
+  fireEvent.change(screen.getByLabelText('第 1 个 provider'), { target: { value: 'doubao' } })
+  await waitFor(() => expect(rows()).toEqual([{ provider: 'doubao', model: '' }]))
 })
 
-it('does not mistake a failed carrier for an empty catalog', async () => {
-  harness(async () => ({ ok: false, error: { code: 'unavailable', message: 'no', details: {} } }))
-  await waitFor(() => expect(screen.getByText(/读不到模型清单/)).toBeTruthy())
-  expect((screen.getByLabelText('语义检测 provider') as HTMLInputElement).tagName).toBe('INPUT')
+it('offers only that provider\'s models once a provider is chosen', async () => {
+  harness({
+    providers: twoProviders,
+    stored: [{ provider: 'workbuddy', model: 'deepseek-v4.1-flash' }],
+  })
+  await waitFor(() => expect(screen.getByLabelText('第 1 个模型')).toBeTruthy())
+  const model = screen.getByLabelText('第 1 个模型') as HTMLSelectElement
+  expect([...model.options].map(option => option.value)).toEqual(['', 'deepseek-v4.1-flash'])
+})
+
+it('explains an empty provider instead of showing an unfillable dropdown', async () => {
+  harness({
+    providers: [{ id: 'broken', models: [], unavailable: true }],
+    stored: [{ provider: 'broken', model: 'stale-id' }],
+  })
+  await waitFor(() => expect(screen.getByLabelText('第 1 个模型')).toBeTruthy())
+  const model = screen.getByLabelText('第 1 个模型') as HTMLSelectElement
+  expect(model.disabled).toBe(true)
+  expect(model.options[0]!.textContent).toBe('该 provider 没有可用模型')
+})
+
+it('falls back to free text when the host has no model catalog', async () => {
+  const { rows } = harness({ providers: [], stored: [{ provider: 'workbuddy', model: 'deepseek-v4.1-flash' }] })
+  await waitFor(() => expect(screen.getByText(/当前 DSH 版本不提供模型清单/)).toBeTruthy())
+  const provider = screen.getByLabelText('第 1 个 provider') as HTMLInputElement
+  expect(provider.tagName).toBe('INPUT')
+  fireEvent.change(provider, { target: { value: '  doubao  ' } })
+  fireEvent.blur(provider)
+  await waitFor(() => expect(rows()).toEqual([{ provider: 'doubao', model: '' }]))
+})
+
+it('surfaces the host\'s reason when saving is rejected, instead of silently reverting', async () => {
+  harness({
+    providers: twoProviders,
+    stored: [{ provider: 'workbuddy', model: 'deepseek-v4.1-flash' }],
+    saveError: 'route preference storage unavailable',
+  })
+  await waitFor(() => expect(screen.getByText('新增一个候选')).toBeTruthy())
+  fireEvent.click(screen.getByText('新增一个候选'))
+  await waitFor(() => expect(screen.getByText(/未保存：route preference storage unavailable/)).toBeTruthy())
+})
+
+it('never treats a failed read as "user has no preference"', async () => {
+  harness({ readError: 'detection routes storage unavailable' })
+  await waitFor(() => expect(screen.getByText(/未保存：detection routes storage unavailable/)).toBeTruthy())
+})
+
+it('stops offering new rows at the host limit', async () => {
+  const eight = Array.from({ length: 8 }, (_value, index) => ({ provider: 'workbuddy', model: `m${index}` }))
+  harness({ providers: twoProviders, stored: eight })
+  await waitFor(() => expect(screen.getByText(/最多 8 个，已排满/)).toBeTruthy())
+  expect((screen.getByText(/最多 8 个，已排满/) as HTMLButtonElement).disabled).toBe(true)
 })
