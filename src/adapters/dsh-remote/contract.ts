@@ -16,6 +16,8 @@ export const RUN2SKILL_QUERY_ENDPOINTS = [
   'summary',
   'proposals/get',
   'recent-activity/list',
+  'recall-telemetry/list',
+  'model-catalog/list',
   'learning/status',
   'learning/issues/list',
   'purge/preview',

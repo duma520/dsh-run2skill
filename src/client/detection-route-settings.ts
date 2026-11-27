@@ -36,7 +36,17 @@ const CATALOG_TIMEOUT_MS = 15_000
  */
 function readCatalog(value: unknown): CatalogState {
   if (typeof value !== 'object' || value === null) return { phase: 'UNAVAILABLE', catalogAvailable: false, providers: [] }
-  const record = value as Record<string, unknown>
+  // Every run2skill endpoint answers with the { ok, value } carrier, the same
+  // shape the other sections already parse. Reading the payload directly here
+  // meant the picker silently degraded to free-text fields on every host,
+  // because `apiVersion` never appeared at the top level.
+  const envelope = value as Record<string, unknown>
+  if (envelope['ok'] !== true) return { phase: 'UNAVAILABLE', catalogAvailable: false, providers: [] }
+  const payload = envelope['value']
+  if (typeof payload !== 'object' || payload === null) {
+    return { phase: 'UNAVAILABLE', catalogAvailable: false, providers: [] }
+  }
+  const record = payload as Record<string, unknown>
   if (record['apiVersion'] !== 1) return { phase: 'UNAVAILABLE', catalogAvailable: false, providers: [] }
   const catalogAvailable = record['catalogAvailable'] === true
   const providers: CatalogProvider[] = []
@@ -108,6 +118,11 @@ function oneRoute(
   const provider = settings[providerField]
   const models = catalog.providers.find(item => item.id === provider)?.models ?? []
   const selectable = catalog.phase === 'READY' && catalog.catalogAvailable && !disabled
+  // A provider that listed no models at all leaves nothing to pick, so the
+  // model box has to stay free text there. Every other readable-catalog case
+  // gets a real dropdown — including "no provider chosen yet", where an input
+  // labelled "先选 provider" reads as "you cannot choose anything".
+  const modelSelectable = selectable && (models.length > 0 || provider.length === 0)
   return createElement('div', { key: providerField },
     createElement('label', null,
       createElement('span', null, providerLabel),
@@ -149,15 +164,16 @@ function oneRoute(
     ),
     createElement('label', null,
       createElement('span', null, modelLabel),
-      selectable && models.length > 0
+      modelSelectable
         ? createElement('select', {
           'aria-label': modelLabel,
           value: settings[modelField],
+          disabled: models.length === 0,
           onChange: (event: { currentTarget: { value: string } }) => {
             void controller.setField(modelField, event.currentTarget.value)
           },
         },
-        createElement('option', { value: '' }, '未选择'),
+        createElement('option', { value: '' }, models.length === 0 ? '先选 provider' : '未选择'),
         ...models.map(model => createElement('option', { key: model.id, value: model.id },
           model.name === undefined ? model.id : `${model.name}（${model.id}）`)),
         )

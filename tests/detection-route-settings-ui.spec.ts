@@ -28,8 +28,13 @@ function harness(catalog?: ModelCatalogCall) {
   return { controller, set, snapshot: () => snapshot }
 }
 
+// The remote caller always answers with the { ok, value } carrier; every other
+// section parses that shape too. Fixtures return the carrier so this test keeps
+// guarding what the host actually sends rather than a payload shape nobody
+// produces.
 const catalogWith = (providers: unknown): ModelCatalogCall => async () => ({
-  apiVersion: 1, catalogAvailable: true, providers,
+  ok: true,
+  value: { apiVersion: 1, catalogAvailable: true, providers },
 })
 
 it('starts with no pinned route and says detection follows the Turn until one is chosen', async () => {
@@ -64,7 +69,7 @@ it('offers the installed providers as a select and clears the model when the pro
 })
 
 it('falls back to free text when the host has no model catalog', async () => {
-  const { controller, set } = harness(async () => ({ apiVersion: 1, catalogAvailable: false, providers: [] }))
+  const { controller, set } = harness(async () => ({ ok: true, value: { apiVersion: 1, catalogAvailable: false, providers: [] } }))
 
   await waitFor(() => expect(screen.getByText(/当前 DSH 版本不提供模型清单/)).toBeTruthy())
   const provider = screen.getByLabelText('语义检测 provider') as HTMLInputElement
@@ -124,4 +129,45 @@ it('keeps a provider that could not list its models out of the model choices', a
   // showing an empty select the user cannot fill.
   expect((screen.getByLabelText('语义检测模型') as HTMLInputElement).tagName).toBe('INPUT')
   controller.dispose()
+})
+
+it('offers a provider dropdown once the host reports a catalog', async () => {
+  harness(catalogWith([
+    { id: 'workbuddy', name: 'WorkBuddy', models: [{ id: 'deepseek-v4.1-flash', name: 'DeepSeek V4.1 Flash' }] },
+    { id: 'doubao', name: 'Doubao', models: [{ id: 'person-deepseek', name: 'Person DeepSeek' }] },
+  ]))
+  await waitFor(() => expect(screen.getByText(/下面是这台设备已经接通的 provider 与模型/)).toBeTruthy())
+  // A dropdown, not a free-text box: the whole point of reading the catalog.
+  const provider = screen.getByLabelText('语义检测 provider') as HTMLSelectElement
+  expect(provider.tagName).toBe('SELECT')
+  const options = [...provider.options].map(option => option.value)
+  expect(options).toEqual(['', 'workbuddy', 'doubao'])
+  // Model stays empty until a provider is chosen, and only ever lists that provider's models.
+  const model = screen.getByLabelText('语义检测模型') as HTMLSelectElement
+  expect(model.tagName).toBe('SELECT')
+  expect([...model.options].map(option => option.value)).toEqual([''])
+})
+
+it('clears the model when the provider changes so a cross-provider pair cannot be saved', async () => {
+  const { set } = harness(catalogWith([
+    { id: 'workbuddy', name: 'WorkBuddy', models: [{ id: 'deepseek-v4.1-flash', name: 'Flash' }] },
+    { id: 'doubao', name: 'Doubao', models: [{ id: 'person-deepseek', name: 'Person' }] },
+  ]))
+  await waitFor(() => expect(screen.getByText(/下面是这台设备已经接通的 provider 与模型/)).toBeTruthy())
+  const provider = screen.getByLabelText('语义检测 provider') as HTMLSelectElement
+  fireEvent.change(provider, { target: { value: 'workbuddy' } })
+  await waitFor(() => expect(set).toHaveBeenCalledWith('detectionProvider', 'workbuddy'))
+  const model = screen.getByLabelText('语义检测模型') as HTMLSelectElement
+  expect([...model.options].map(option => option.value)).toEqual(['', 'deepseek-v4.1-flash'])
+  fireEvent.change(model, { target: { value: 'deepseek-v4.1-flash' } })
+  await waitFor(() => expect(set).toHaveBeenCalledWith('detectionModel', 'deepseek-v4.1-flash'))
+  // Switching provider must drop the model in the same edit, not leave a stale pair.
+  fireEvent.change(provider, { target: { value: 'doubao' } })
+  await waitFor(() => expect(set).toHaveBeenCalledWith('detectionModel', ''))
+})
+
+it('does not mistake a failed carrier for an empty catalog', async () => {
+  harness(async () => ({ ok: false, error: { code: 'unavailable', message: 'no', details: {} } }))
+  await waitFor(() => expect(screen.getByText(/读不到模型清单/)).toBeTruthy())
+  expect((screen.getByLabelText('语义检测 provider') as HTMLInputElement).tagName).toBe('INPUT')
 })
