@@ -136,7 +136,7 @@ const learningStatusResultSchema = z.object({
   ok: z.literal(true),
   value: z.object({
     apiVersion: z.literal(1),
-    state: z.enum(['EMPTY', 'RECORDED', 'PROCESSING', 'CHECKING', 'COVERED', 'NEEDS_ATTENTION']),
+    state: z.enum(['EMPTY', 'UNSCOPED', 'RECORDED', 'PROCESSING', 'CHECKING', 'COVERED', 'NEEDS_ATTENTION']),
     canRequest: z.boolean(),
   }).strict(),
 }).strict()
@@ -152,6 +152,7 @@ const learningRequestResultSchema = z.object({
 
 const learningStatusCopy = {
   EMPTY: '当前没有可整理的经验。',
+  UNSCOPED: '这个会话不在当前项目里（可能是刚新建还没选工作区，或它的目录不在项目范围内），这里没有可整理的内容。',
   RECORDED: '已记下，待本次会话结束后整理。',
   PROCESSING: '正在整理本次经验…',
   CHECKING: '正在检查已有 Skill…',
@@ -239,8 +240,8 @@ export function LearningStatusSection(props: {
     : state.phase === 'LOADING'
       ? '正在读取整理状态…'
       : state.phase === 'ERROR'
-        ? '读不到这个会话的整理状态：多半是当前项目与记录的归属对不上，或插件刚重启还在恢复历史。'
-          + '可以点右边的刷新按钮重试；一直不行就重启一次 DSH。'
+        ? '这次没读到整理状态：可能是插件刚重启、还在恢复历史记录，或后端一时没响应。'
+          + '点右边的刷新按钮重试一次；一直不行就重启 DSH。'
         : learningStatusCopy[state.value.state]
   return createElement('div', { className: css.sectionBody },
     createElement('div', { className: css.learningStatusRow },

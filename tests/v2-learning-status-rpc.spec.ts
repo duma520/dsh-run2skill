@@ -158,4 +158,55 @@ describe('v2 learning status RPC', () => {
       expect(requestSynthesis).toHaveBeenCalledTimes(endpoint === 'learning/request' ? 1 : 0)
     },
   )
+
+  it('reports a readable Session that belongs to no project as UNSCOPED instead of a conflict', async () => {
+    const requestSynthesis = vi.fn()
+    const handler = createV2LearningStatusRpcHandler(() => createMemoryRun2skillV2Domain(), {
+      resolveSession: () => undefined,
+      // 会话读得动，但解不出工作区（新建会话还没选项目时的真实形态）
+      resolveEmptySession: async (sessionId: string) => ({ sessionId }),
+      resolveWorkspace: async () => undefined,
+      requestSynthesis,
+    })
+    const request = {
+      apiVersion: 1,
+      sessionId: 'unscoped-session',
+      currentScope: { kind: 'WORKSPACE' as const, generation: 1, workspaceId: 'workspace-a' },
+    }
+    const signal = new AbortController().signal
+
+    // 以前这里回 conflict，界面上被说成「读不到整理状态、归属对不上」
+    await expect(handler('learning/status', request, signal)).resolves.toEqual({
+      ok: true,
+      value: { apiVersion: 1, state: 'UNSCOPED', canRequest: false },
+    })
+    // 但写操作仍然拒绝：不知道该记到哪个项目名下
+    await expect(handler('learning/request', request, signal)).resolves.toMatchObject({
+      ok: false, error: { code: 'conflict' },
+    })
+    expect(requestSynthesis).not.toHaveBeenCalled()
+  })
+
+  it('keeps answering conflict when the caller asks a Workspace-bound Session through USER_ONLY', async () => {
+    const requestSynthesis = vi.fn()
+    const handler = createV2LearningStatusRpcHandler(() => createMemoryRun2skillV2Domain(), {
+      resolveSession: () => undefined,
+      resolveEmptySession: async (sessionId: string) => ({
+        sessionId,
+        workspaceBinding: { workspaceId: 'workspace-a', canonicalPath: 'D:/workspace-a' },
+      }),
+      resolveWorkspace: async workspaceId => ({ workspaceId, canonicalPath: 'D:/workspace-a' }),
+      requestSynthesis,
+    })
+
+    // 反方向不能放宽：有绑定的会话被按 USER_ONLY 问，是真正的越界
+    await expect(handler('learning/status', {
+      apiVersion: 1,
+      sessionId: 'session-a',
+      currentScope: { kind: 'USER_ONLY', generation: 1 },
+    }, new AbortController().signal)).resolves.toMatchObject({
+      ok: false, error: { code: 'conflict' },
+    })
+    expect(requestSynthesis).not.toHaveBeenCalled()
+  })
 })

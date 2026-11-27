@@ -19,7 +19,14 @@ const requestSchema = z.object({
   sessionId: z.string().min(1).max(256),
 }).strict()
 
-export type LearningStatusState = 'EMPTY' | 'RECORDED' | 'PROCESSING' | 'CHECKING' | 'COVERED' | 'NEEDS_ATTENTION'
+export type LearningStatusState =
+  | 'EMPTY'
+  | 'UNSCOPED'
+  | 'RECORDED'
+  | 'PROCESSING'
+  | 'CHECKING'
+  | 'COVERED'
+  | 'NEEDS_ATTENTION'
 
 interface LearningStatusSession {
   readonly sessionId: string
@@ -141,12 +148,21 @@ export function createV2LearningStatusRpcHandler(
       })
       if (matches.length === 0 && endpoint === LEARNING_STATUS_ENDPOINT) {
         const emptySession = await options.resolveEmptySession?.(request.data.sessionId, signal)
-        if (
-          emptySession?.sessionId === request.data.sessionId
-          && await sessionMatchesCurrentScope(emptySession, request.data.currentScope, options.resolveWorkspace)
-          && !signal.aborted
-        ) {
-          return { ok: true, value: { apiVersion: 1, state: 'EMPTY', canRequest: false } }
+        if (emptySession?.sessionId === request.data.sessionId && !signal.aborted) {
+          if (await sessionMatchesCurrentScope(emptySession, request.data.currentScope, options.resolveWorkspace)) {
+            return { ok: true, value: { apiVersion: 1, state: 'EMPTY', canRequest: false } }
+          }
+          // 会话读得动、但它不属于任何项目，而调用方在项目作用域里问：这是新建会话
+          // 还没选工作区、或它的目录不在任何已登记项目范围内的正常情形。以前一律掉
+          // 进下面的 conflict，界面上被说成「读不到整理状态、归属对不上」，看着像插件
+          // 坏了。只有「没有绑定」这一侧才回答 UNSCOPED——反过来（会话有绑定、调用方
+          // 却按 USER_ONLY 问）仍然报 conflict，那才是真正的越界，也避免把「某个项目
+          // 里的会话存在与否」透给不该看到的调用方。
+          if (emptySession.workspaceBinding === undefined
+            && request.data.currentScope.kind === 'WORKSPACE'
+            && !signal.aborted) {
+            return { ok: true, value: { apiVersion: 1, state: 'UNSCOPED', canRequest: false } }
+          }
         }
       }
       if (matches.length !== 1) return error('conflict', 'current Session unavailable')

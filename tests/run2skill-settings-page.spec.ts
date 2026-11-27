@@ -144,6 +144,7 @@ describe('run2skill native settings surface', () => {
 
   it.each([
     ['EMPTY', '当前没有可整理的经验。', false],
+    ['UNSCOPED', '这个会话不在当前项目里（可能是刚新建还没选工作区，或它的目录不在项目范围内），这里没有可整理的内容。', false],
     ['CHECKING', '正在检查已有 Skill…', false],
     ['COVERED', '已有 Skill 已覆盖这次经验。', false],
     ['NEEDS_ATTENTION', '整理结果需要你处理。', false],
@@ -170,7 +171,7 @@ describe('run2skill native settings surface', () => {
       sessionId: 'session-a', active: true, call,
     }))
 
-    expect((await screen.findByRole('alert')).textContent).toBe('读不到这个会话的整理状态：多半是当前项目与记录的归属对不上，或插件刚重启还在恢复历史。可以点右边的刷新按钮重试；一直不行就重启一次 DSH。')
+    expect((await screen.findByRole('alert')).textContent).toBe('这次没读到整理状态：可能是插件刚重启、还在恢复历史记录，或后端一时没响应。点右边的刷新按钮重试一次；一直不行就重启 DSH。')
     expect(screen.getByRole('button', { name: '立即整理本次经验' }).hasAttribute('disabled')).toBe(true)
     const refresh = screen.getByRole('button', { name: '刷新整理状态' })
     refresh.focus()
