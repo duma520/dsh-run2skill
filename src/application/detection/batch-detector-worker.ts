@@ -218,7 +218,21 @@ export class BatchDetectorWorker {
     const outputDigest = this.#outputDigest(raw)
     const parsed = detectorOutputSchema.safeParse(normalizeDetectorOutput(raw, claimed.input.observations))
     if (!parsed.success || !this.#evidenceIsBound(parsed.data, claimed)) {
-      await this.#commitAttention(claimed, 'SUCCEEDED', 'INVALID_DETECTOR_OUTPUT', outputDigest)
+      // No Turn in this batch carries a User message the User actually wrote
+      // (image-only or attachment-only Turns). Nothing the model answers can bind
+      // to evidence that does not exist, so this is "nothing to learn here", not
+      // "the model misbehaved". Recording it as a NONE result stops the batch from
+      // asking the User to look at something they cannot act on.
+      const citable = claimed.input.observations.some(item => item.directUserEvidence.length > 0)
+      if (citable) {
+        await this.#commitAttention(claimed, 'SUCCEEDED', 'INVALID_DETECTOR_OUTPUT', outputDigest)
+        return 'PROCESSED'
+      }
+      try {
+        await this.#commitOutput(claimed, { result: 'NONE' }, outputDigest)
+      } catch {
+        await this.#commitAttention(claimed, 'SUCCEEDED', 'DETECTOR_COMMIT_FAILED', outputDigest)
+      }
       return 'PROCESSED'
     }
     try {

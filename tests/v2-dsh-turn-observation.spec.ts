@@ -463,6 +463,57 @@ describe('DSH TurnObservationV2 projection', () => {
     expect(JSON.stringify(result.observation)).not.toContain('written')
   })
 
+  // A Turn with more tool calls than MAX_TOOL_SUMMARIES is long, not corrupt. It
+  // used to be marked INCOMPLETE, which wiped directUserEvidence with it, and the
+  // detector then rejected the model answer as unbound (INVALID_DETECTOR_OUTPUT).
+  // Real case behind this test: one Turn made 516 tool calls and lost the User's
+  // only written request with it.
+  it('keeps a long Turn complete and keeps its direct-user evidence when tool calls overflow the summary bound', async () => {
+    const events = completeTurn('把这个流程保存成 Skill。')
+    const turnEnd = events.findIndex(event => event.type === 'turn/end')
+    const overflow = Array.from({ length: 40 }, (_, index) => {
+      const callId = `call-overflow-${String(index)}`
+      const call: DshSessionEvent = {
+        type: 'tool/call',
+        seq: 0,
+        time: 0,
+        data: { turn: 1, step: 1, callId, name: 'ops_bash', arguments: '{}' },
+      }
+      const result: DshSessionEvent = {
+        type: 'tool/result',
+        seq: 0,
+        time: 0,
+        data: {
+          turn: 1,
+          step: 1,
+          message: {
+            id: `tool-overflow-${String(index)}`,
+            role: 'user',
+            source: { kind: 'tool', callId },
+            content: [{ type: 'tool-result', toolCallId: callId, content: [{ type: 'text', text: 'ok' }] }],
+          },
+        },
+      }
+      return [call, result]
+    }).flat()
+    events.splice(turnEnd, 0, ...overflow)
+    events.forEach((event, seq) => {
+      ;(event as { seq: number; time: number }).seq = seq
+      ;(event as { seq: number; time: number }).time = 1_000 + seq
+    })
+
+    const result = await projectDshTurnObservationV2(header, events, events.at(-1)!.seq, workspace)
+
+    expect(result.status).toBe('OBSERVED')
+    if (result.status !== 'OBSERVED') throw new Error('expected an observation')
+    expect(result.observation.completeness).toBe('COMPLETE')
+    expect(result.observation.directUserEvidence).toHaveLength(1)
+    expect(result.observation.directUserEvidence[0]?.excerpt).toContain('保存成 Skill')
+    // The summary stays bounded: overflow is dropped, not stored.
+    expect(result.observation.toolOutcomeSummary).toHaveLength(32)
+    expect(result.observation.toolOutcomeSummary.every(item => item.outcome === 'SUCCEEDED')).toBe(true)
+  })
+
   it('fails closed to metadata-only when direct-user evidence exceeds its capture bound', async () => {
     const result = await projectDshTurnObservationV2(
       header,

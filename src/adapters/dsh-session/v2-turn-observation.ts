@@ -405,7 +405,13 @@ function projectToolSummaries(
       else results.set(result.callId, result)
     }
   }
-  if (calls.size > MAX_TOOL_SUMMARIES) complete = false
+  // A Turn that happens to call tools more than MAX_TOOL_SUMMARIES times is long,
+  // not corrupt. Marking it incomplete here used to poison the whole observation:
+  // `complete` gates the direct-user evidence, so a long Turn lost the User's own
+  // words and the detector then rejected every model answer as unbound
+  // (INVALID_DETECTOR_OUTPUT). The summary is bounded by construction - the slice
+  // below keeps the earliest MAX_TOOL_SUMMARIES entries - so overflow is simply
+  // dropped instead of invalidating the observation.
   for (const [callId, result] of results) {
     const call = calls.get(callId)
     if (call === undefined || result.seq <= call.seq || result.step !== call.step) complete = false

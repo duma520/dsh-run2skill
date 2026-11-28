@@ -295,6 +295,59 @@ describe('v2 Batch Detector worker', () => {
     })
   })
 
+  it('records NONE instead of asking for attention when no Turn in the batch has citable User words', async () => {
+    // Real case behind the "语义检测 未完成" report: the only User messages in that
+    // session were screenshots. Every Turn ended INCOMPLETE with an empty
+    // directUserEvidence, so #evidenceIsBound could never admit the model's answer
+    // and each batch surfaced as INVALID_DETECTOR_OUTPUT - "needs attention" for
+    // something the User has no way to act on.
+    const { domain, fixtures } = await seedFrozenBatch()
+    const emptyEvidence: readonly never[] = []
+    const facts = {
+      ...fixtures.turnObservation,
+      directUserEvidence: emptyEvidence,
+      evidenceDigest: sha256Utf8(canonicalJson(emptyEvidence)),
+      completeness: 'INCOMPLETE' as const,
+    }
+    const observation = TurnObservationV2Schema.parse({
+      ...facts,
+      observationId: deriveTurnObservationIdV2(facts),
+      contentDigest: deriveTurnObservationContentDigestV2(facts),
+    })
+    await domain.table('turn_observations').put(observation.observationId, observation)
+    const manifest = [{
+      observationId: observation.observationId,
+      turnStartSeq: observation.turnStartSeq,
+      turnEndSeq: observation.turnEndSeq,
+      evidenceDigest: observation.evidenceDigest,
+      completeness: observation.completeness,
+    }]
+    await domain.table('session_batches').put(fixtures.sessionBatch.batchId, SessionBatchV2Schema.parse({
+      ...fixtures.sessionBatch,
+      observationManifest: manifest,
+      observationManifestDigest: sha256Utf8(canonicalJson(manifest)),
+    }))
+    const model = client({
+      result: 'READY',
+      intents: [{
+        persistenceScope: 'PROJECT',
+        experienceType: 'WORKFLOW',
+        applicabilitySummary: '制作网页小游戏时使用这套流程。',
+        keySteps: ['先分析需求', '再设计架构'],
+        prohibitions: [],
+        evidenceDigests: ['f'.repeat(64)],
+        completeness: { status: 'COMPLETE', blockers: [] },
+      }],
+    })
+    const worker = new BatchDetectorWorker(domain, { client: model })
+
+    await worker.runOnce()
+
+    expect(model.calls).toBe(1)
+    expect(domain.sessionBatches.get(fixtures.sessionBatch.batchId)!.state).toBe('COMMITTED_NONE')
+    expect(domain.experienceIntents.size).toBe(0)
+  })
+
   it('fails closed on invalid output and never spends a second call', async () => {
     const { domain, fixtures } = await seedFrozenBatch()
     const model = client({ result: 'READY', intents: [] })
