@@ -34,6 +34,24 @@
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
+  /*
+   * 必须有这两条，否则 7 个区块会被压扁、每个只露出标题和半行正文。
+   *
+   * 成因是 Grid 的一个细节：`.page` 是 grid 容器且高度确定（height:100%），
+   * 而每个 `.section` 都带 `overflow:hidden`。按规范，**子项 overflow 不是
+   * visible 时，它的自动最小尺寸由 min-content 变成 0** —— 于是行高可以被压到 0，
+   * grid 为了把 7 行塞进容器高度，就把每一行等比例压扁，区块再用自己的
+   * overflow:hidden 把内容裁掉。
+   *
+   * 窗口越大越明显：内容明明放得下，却因为行被压而看不全；换手机、平板、
+   * 桌面都一样 —— 因为它跟容器多高无关，是布局算法本身的锅。
+   *
+   * grid-auto-rows:max-content 让行高按内容算、不参与压缩；
+   * align-content:start 避免剩余空间把行拉开。
+   * 这样内容超出容器时才会真正溢出，overflow-y:auto 才有东西可滚。
+   */
+  grid-auto-rows: max-content;
+  align-content: start;
   /* Chromium 认这条；Firefox 认下面的 scrollbar-width，两边都写上。 */
   scrollbar-width: thin;
 }
