@@ -5,12 +5,12 @@
 <p align="center"><strong>把对话经验，变成下次可用的 Skill。</strong></p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.8.1-247C78" alt="版本 1.8.1" />
+  <img src="https://img.shields.io/badge/version-1.9.0-247C78" alt="版本 1.9.0" />
   <img src="https://img.shields.io/badge/DSH-%3E%3D0.2.2--rc.1-153B3C" alt="支持 DSH 0.2.2-rc.1 及以上的任意版本（含 alpha/rc 预发布）" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-EAB45C" alt="MIT 许可证" /></a>
 </p>
 
-> **这是 duma520 维护的分叉版本（`@duma520/dsh-run2skill` v1.8.1）**
+> **这是 duma520 维护的分叉版本（`@duma520/dsh-run2skill` v1.9.0）**
 >
 > 上游为 [qkycir-123/dsh-run2skill](https://github.com/qkycir-123/dsh-run2skill) v1.0.0。
 >
@@ -32,6 +32,7 @@
 > 1.7.1 修正 1.7.0 的滚动结论。**同一个页面挂在两个位置，两条路径的父容器行为不一样**：插件详情页的 `.pageBody` 自己会滚，左侧栏的 `.mainPanel` 不会（它只有 `flex:1; min-height:0`，再往上 `.centreCol` 是 `overflow:hidden`，超出直接裁掉）。所以 1.7.0「滚动全交宿主」只对详情页成立，侧栏那条彻底滚不动。这次改为 `.page` 自己声明 `height:100% + overflow-y:auto`：侧栏父容器定高 → 生效、自己滚；详情页中间那层高度是 auto → `height:100%` 按 auto 处理、不产生溢出，仍由宿主滚，不会出现两条滚动条。同时补回细滚动条样式（部分主题把全局滚动条宽度设成 0，会「能滚但看不见」）。
 > 1.8.0 修「语义检测 未完成」的两个真实根因。① **工具调得多 ≠ 观测残缺**：一整轮调了 500 多次工具时，旧逻辑把整条观测判成「不完整」，连带把已经提取好的用户原话丢弃成空数组；证据一空，模型无论答什么都绑不上，一律判成「模型输出非法」。现在工具摘要超上限只截断（保留最早 32 条），不再让整条观测作废。② **没什么可学的不该报成出错**：当一批里的用户消息全是截图、没有任何可引用的原话时，模型答什么都会失败，旧逻辑却把它记成「需要处理」要求用户看——用户根本无从下手。现在这类批次直接记为「这次没有可整理的内容」并跳过。
 > 1.8.1 面板「看不全」的真正根因：**Grid 把每一行压扁了**。前两次（1.7.0 / 1.7.1）都在调页面自己的 `height` / `max-height` / `overflow`，方向全错——现场现象是页面根本不溢出（`scrollHeight === clientHeight`），所以没有滚动条。真正的成因是：`.page` 是 `display:grid` 且高度确定，而每个 `.section` 都带 `overflow:hidden`；按 CSS 规范，**子项 overflow 不是 visible 时，它的自动最小尺寸由 `min-content` 变成 `0`**，于是 grid 为了把 7 行塞进容器高度就把每行等比例压扁，区块再用自己的 `overflow:hidden` 把内容裁掉。这也解释了为什么手机、平板、桌面全都一样——跟容器多高无关。修法只有两行：`grid-auto-rows:max-content` + `align-content:start`。已用真实 Chrome 复现并验证：修前每块只剩 65px（正文需要 117px）、页面不可滚；修后每块 122–195px、页面可滚。
+> 1.9.0 修「整条学习链路一条 Skill 都产不出来」的根因。此前你把功能做完一遍却什么都没生成——不是算法不灵，是**整个插件根本没启动过**。根因是三层的同一处：①插件用 `sha256` 把 DSH 自己的 standard preset 组合写死成白名单，DSH 一升级摘要就对不上，`captureRootConfiguration` 就抛 `V2_ROOT_CONFIGURATION_UNAVAILABLE`，该 Agent 永久不进作用域（本机日志里这条错误 4667 次，仍在每秒增长）；②这个失败被 catch 吞成一条笼统的 `AGENT_SCOPE_UNAVAILABLE`（8101 条），把真正的根因埋掉了；③解析 preset 自带 skills 目录时依赖 asar 内的模块布局，解析失败直接判死，而 `supportedConfiguration` 又要求「目录解析不到时 `customSkillDirs` 必须为空」，偏偏官方 preset 声明了 1 个——两头堵死。现在改为**摘要优先、结构兜底**：摘要对不上时按「preset 是 standard 且组合里仍有 `dsh-skill-filesystem`」认，再往下仍要过活 fiber 配置与 `supportedConfiguration` 两层校验，真正陌生的组合照样拒绝；失败原因也单独记一条同名健康码，不再混进笼统状态。
 >
 
 > - 上游 1.0.0 在 DSH 0.2.3-alpha.2 上会被插件门禁拦下，报「与 DSH 0.2.3-alpha.2 不兼容（要求 … 0.2.2-rc.1 \|\| 0.2.2-rc.3）」。
@@ -100,7 +101,7 @@ Run2Skill 把你在 DeepSeek Harness（DSH）里教给 Agent 的纠正、约束�
 5. **改 `cordis.patch.yml`**：找到 `- id: run2skill` 那一行，把 `name` 改成 `"@duma520/dsh-run2skill"`（**必须带引号**，YAML 里以 `@` 开头的裸标量是非法的）。`config.automaticLearning` 保留原值。
 6. **彻底退出并重启 DSH 桌面应用**。前端与 bundle 清单只在启动时装配一次，热刷新不生效。
 
-重启后验证：左侧栏 **插件** 里出现 `dsh-run2skill` 卡片，版本 `1.8.1`，`未运行` 的红字不兼容提示消失。
+重启后验证：左侧栏 **插件** 里出现 `dsh-run2skill` 卡片，版本 `1.9.0`，`未运行` 的红字不兼容提示消失。
 
 ### 为什么不能用 `dsh plugin` 命令行
 
@@ -343,6 +344,7 @@ Web 用户将 `desktop` 换成 `web`。卸载后已保存的 Skill 和插件数�
 | 1.7.1 | 2026-11-28 | 修正 1.7.0 的滚动结论：**同一个页面挂在两个位置，两条路径的父容器行为不一样**。插件详情页的 `.pageBody` 自己会滚，左侧栏的 `.mainPanel` 不会（它只有 `flex:1; min-height:0`，再往上 `.centreCol` 是 `overflow:hidden`，超出直接裁掉）。所以 1.7.0「滚动全交宿主」只对详情页成立，侧栏那条彻底滚不动。这次改为 `.page` 自己声明 `height:100% + overflow-y:auto`：侧栏父容器定高 → 生效、自己滚；详情页中间那层高度是 auto → `height:100%` 按 auto 处理、不产生溢出，仍由宿主滚，不会出现两条滚动条。同时补回细滚动条样式（部分主题把全局滚动条宽度设成 0，会「能滚但看不见」） |
 | 1.8.0 | 2026-11-28 | 修「语义检测 未完成」的两个真实根因。①**工具调得多 ≠ 观测残缺**：一整轮调了 500 多次工具时，旧逻辑把整条观测判成「不完整」，连带把已经提取好的用户原话丢弃成空数组，于是模型无论答什么都绑不上证据、一律判成「模型输出非法」。现在工具摘要超上限只截断（保留最早 32 条），不再让整条观测作废。②**没什么可学的不该报成出错**：当一批里的用户消息全是截图、没有任何可引用的原话时，模型答什么都会失败，旧逻辑把它记成「需要处理」要求用户看——但用户根本无从下手。现在这种批次直接记为「这次没有可整理的内容」并跳过，不再弹「需要处理」 |
 | 1.8.1 | 2026-11-28 | 面板「看不全」的真正根因：**Grid 把每一行压扁了**。`.page` 是 `display:grid` 且高度确定，每个 `.section` 又带 `overflow:hidden`——按 CSS 规范，子项 overflow 不是 `visible` 时自动最小尺寸由 `min-content` 变成 `0`，于是 grid 把 7 行等比例压扁以塞进容器，每个区块再用自己的 `overflow:hidden` 裁掉内容。前两次（1.7.0 / 1.7.1）调 `height` / `max-height` 方向都错了，因为页面根本不溢出。修法两行：`grid-auto-rows:max-content` + `align-content:start` |
+| 1.9.0 | 2026-11-29 | 修「整条学习链路一条 Skill 都产不出来」的根因。此前功能从未真正跑通一次（`proposal_lineages` 恒为 0）：插件用 `sha256` 把 DSH 自己的 standard preset 组合写死成白名单，DSH 升级到 0.2.3-alpha.2 后摘要对不上，`captureRootConfiguration` 抛 `V2_ROOT_CONFIGURATION_UNAVAILABLE`，该 Agent 永久不进作用域（本机日志 4667 次）；该失败又被 catch 吞成一条笼统的 `AGENT_SCOPE_UNAVAILABLE`（8101 条），把根因埋掉。另有第三处：解析 preset 自带 skills 目录依赖 asar 内模块布局，解析失败直接判死，而 `supportedConfiguration` 要求「解析不到时 `customSkillDirs` 必须为空」，官方 preset 却声明了 1 个。改为摘要优先、结构兜底（preset 是 `standard` 且组合里仍有 `dsh-skill-filesystem`），下游活 fiber 配置与 `supportedConfiguration` 两层校验仍全部保留 |
 
 详细改动、验证过程与回滚方法见 [软件升级迭代记录.md](软件升级迭代记录.md)。
 

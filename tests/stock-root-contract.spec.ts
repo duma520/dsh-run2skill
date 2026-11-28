@@ -148,6 +148,53 @@ describe('stock DSH root contract', () => {
     await expect(resolveStockSkillRuntimeConfiguration(mounts, agent)).resolves.toBeUndefined()
   })
 
+  it('falls back to the structural check when an upstream preset edit breaks the pinned digest', async () => {
+    // 这段回归对应 2026-11-28 的真实故障：DSH 升到 0.2.3-alpha.2 后 standard preset
+    // 的组合变了，写死的两个摘要都对不上，于是每个会话都在 captureRootConfiguration
+    // 抛 V2_ROOT_CONFIGURATION_UNAVAILABLE，整条学习链路一条 Skill 都产不出来。
+    type Fiber = { parent: { fiber: Fiber }; state: number; effectiveConfig: unknown }
+    const root = { state: 2, effectiveConfig: {} } as Fiber
+    root.parent = { fiber: root }
+    const mount = { parent: { fiber: root }, state: 2, effectiveConfig: {} } as Fiber
+    const filesystem = {
+      parent: { fiber: mount },
+      state: 2,
+      effectiveConfig: { providerName: 'filesystem', includeDefaultRoots: true, customSkillDirs: [] },
+    } as Fiber
+    const agent = {
+      ctx: { registry: { values: () => [{ name: 'skill-filesystem', fibers: [filesystem] }] } },
+    }
+    const rows = [
+      { id: 'preset-standard', name: '@deepseek-ai/dsh-agent-preset' },
+      { id: 'skill-filesystem', name: '@deepseek-ai/dsh-skill-filesystem' },
+    ]
+    const mounts = {
+      standingMountFor: () => ({ presetId: 'standard', fiber: mount, tree: { root: { data: rows } } }),
+    }
+
+    // 摘要对不上 —— 正是升级后的状态 —— 但组合里还有那个插件，所以仍然认。
+    await expect(resolveStockSkillRuntimeConfiguration(mounts, agent, '0'.repeat(64)))
+      .resolves.toMatchObject({ presetId: 'standard', providerName: 'filesystem' })
+
+    // 组合里没有 skill-filesystem 行时必须拒绝：这时认下来就等于对陌生形态放行。
+    const withoutPlugin = {
+      standingMountFor: () => ({
+        presetId: 'standard',
+        fiber: mount,
+        tree: { root: { data: [{ id: 'preset-standard', name: '@deepseek-ai/dsh-agent-preset' }] } },
+      }),
+    }
+    await expect(resolveStockSkillRuntimeConfiguration(withoutPlugin, agent, '0'.repeat(64)))
+      .resolves.toBeUndefined()
+
+    // preset 名字不是 standard 时同样拒绝，避免拿别的 preset 冒充。
+    const otherPreset = {
+      standingMountFor: () => ({ presetId: 'minimal', fiber: mount, tree: { root: { data: rows } } }),
+    }
+    await expect(resolveStockSkillRuntimeConfiguration(otherPreset, agent, '0'.repeat(64)))
+      .resolves.toBeUndefined()
+  })
+
   it('accepts only the versioned RootBindingV2 stock contract facts', () => {
     const value = {
       state: 'EXISTING' as const,

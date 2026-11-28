@@ -1192,11 +1192,21 @@ export async function apply(context: Run2skillHostContext, config: RetrievalConf
         disposeScope?.()
         // 这里原先是空 catch：只记一条 AGENT_SCOPE_UNAVAILABLE，真实原因彻底丢掉。
         // 结果是健康码刷了几千条，却没人知道到底哪一步失败。至少把原因写进日志。
+        const reason = error instanceof Error ? error.message : String(error)
         log.record('plugin.scope_unavailable', {
           sessionId: agent.id || 'global',
-          error: error instanceof Error ? error.message : String(error),
+          error: reason,
         })
-        notices.record({ healthCode: 'AGENT_SCOPE_UNAVAILABLE', sessionId: agent.id || 'global' })
+        // 分出一个独立的健康码：`V2_ROOT_CONFIGURATION_UNAVAILABLE` 表示「认不出这台
+        // 设备上装的 skill 根契约」，它跟「作用域注册失败」是两回事 —— 前者要运维去看
+        // preset 组合，后者只是这一步没成。以前两者都记成 AGENT_SCOPE_UNAVAILABLE，
+        // 结果日志里 8101 条同一份笼统状态，把真正的 4667 条根因埋掉了。
+        notices.record({
+          healthCode: reason === 'V2_ROOT_CONFIGURATION_UNAVAILABLE'
+            ? 'V2_ROOT_CONFIGURATION_UNAVAILABLE'
+            : 'AGENT_SCOPE_UNAVAILABLE',
+          sessionId: agent.id || 'global',
+        })
       }
     }
     if (

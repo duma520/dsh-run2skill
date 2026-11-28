@@ -78,6 +78,42 @@ export function hasStockPresetComposition(
     && (typeof expectedDigest === 'string' ? digest === expectedDigest : expectedDigest.includes(digest))
 }
 
+/**
+ * Whether the mounted composition still declares the only plugin this contract
+ * actually depends on: a single `skill-filesystem` row.
+ *
+ * The digest list above pins the whole preset composition, which is the
+ * strongest statement we can make and the one we prefer. It is also the most
+ * brittle: the list is a hash of DeepSeek Harness's own preset file, so every
+ * upstream release changes it, and until this repository ships the new hash the
+ * whole learning pipeline goes dark. That is exactly what happened on DSH
+ * 0.2.3-alpha.2: the recorded digest matched neither pinned value, so
+ * `captureRootConfiguration` threw `V2_ROOT_CONFIGURATION_UNAVAILABLE` on every
+ * session, and because `agent/pre-step` only logged an `AGENT_SCOPE_UNAVAILABLE`
+ * health code, nothing surfaced the real cause.
+ *
+ * This predicate is the shape we can still check without the hash: the preset
+ * is named `standard` and its rows still contain a `skill-filesystem` entry.
+ * `resolveMountedStockSkillRuntimeConfiguration` then reads that plugin's live
+ * fiber config and `supportedConfiguration` still refuses anything whose
+ * provider, default roots or `customSkillDirs` disagree. So a composition that
+ * passes here but is genuinely alien is still rejected one layer down - what
+ * changes is that an upstream preset edit no longer disables the feature.
+ */
+export function declaresStockSkillFilesystemRow(mount: StockPresetMountProjection): boolean {
+  if (mount.presetId !== 'standard') return false
+  try {
+    const rows: unknown = mount.tree?.root.data
+    if (!Array.isArray(rows)) return false
+    return rows.some(row => (
+      typeof row === 'object'
+      && row !== null
+      && !Array.isArray(row)
+      && (row as { readonly name?: unknown }).name === '@deepseek-ai/dsh-skill-filesystem'
+    ))
+  } catch { return false }
+}
+
 export interface StockPresetMountPort {
   standingMountFor(
     agentContext: object,
@@ -213,7 +249,17 @@ export async function resolveStockSkillRuntimeConfiguration(
   expectedDigest?: string | readonly string[],
 ): Promise<StockSkillRuntimeConfiguration | undefined> {
   const mount = await mounts.standingMountFor(agent.ctx)
-  if (mount === undefined || (expectedDigest !== undefined && !hasStockPresetComposition(mount, expectedDigest))) return undefined
+  if (mount === undefined) return undefined
+  // Pinned digest first. When it does not match - which is what every upstream
+  // preset edit causes - fall back to the structural check documented on
+  // `declaresStockSkillFilesystemRow` instead of refusing to run at all. The
+  // fiber and `supportedConfiguration` checks below still decide whether the
+  // mounted plugin really is the stock filesystem provider.
+  if (
+    expectedDigest !== undefined
+    && !hasStockPresetComposition(mount, expectedDigest)
+    && !declaresStockSkillFilesystemRow(mount)
+  ) return undefined
   return resolveMountedStockSkillRuntimeConfiguration(mount, agent)
 }
 
@@ -222,15 +268,25 @@ export function resolveMountedStockSkillRuntimeConfiguration(
   agent: StockComposedAgentProjection,
 ): StockSkillRuntimeConfiguration | undefined {
   let stockPresetSkillDir: string | undefined
-  if (hasStockPresetComposition(mount, RC3_STANDARD_DIGEST)) {
+  // Same relaxation as above: the RC3 digest identifies the exact official
+  // composition we were built against, and when the upstream preset moves on we
+  // still need to resolve the preset's own skills directory, otherwise
+  // `supportedConfiguration` rejects the `customSkillDirs` the preset declares.
+  if (hasStockPresetComposition(mount, RC3_STANDARD_DIGEST) || declaresStockSkillFilesystemRow(mount)) {
     // Resolve from the same Loader base as the official preset's customSkillDirs expression.
     const baseUrl = mount.tree?.ctx?.baseUrl
-    if (baseUrl === undefined) return undefined
-    try {
-      const manifest = createRequire(new URL(baseUrl)).resolve('@deepseek-ai/dsh-agent-preset/package.json')
-      stockPresetSkillDir = join(dirname(manifest), 'skills')
-    } catch {
-      return undefined
+    if (baseUrl !== undefined) {
+      try {
+        const manifest = createRequire(new URL(baseUrl)).resolve('@deepseek-ai/dsh-agent-preset/package.json')
+        stockPresetSkillDir = join(dirname(manifest), 'skills')
+      } catch {
+        // Resolution legitimately fails when the preset lives inside an asar the
+        // host has not taught this process to read. Falling through keeps the
+        // structural check below in charge instead of turning a module lookup
+        // into "this device cannot learn", which is how the whole pipeline went
+        // dark before.
+        stockPresetSkillDir = undefined
+      }
     }
   }
   const fibers = [...agent.ctx.registry.values()]
@@ -298,6 +354,21 @@ function canonicalConfiguration(
   }
 }
 
+/**
+ * Whether a configured custom skill directory names the official preset's own
+ * `skills` folder, judged from the path alone.
+ *
+ * Used only when `stockPresetSkillDir` could not be resolved by module lookup -
+ * inside an asar, for instance. The official preset contributes exactly one
+ * `customSkillDirs` entry and that entry points at `<...>/dsh-agent-preset/skills`,
+ * so the tail of the path is enough to tell it apart from a user's own directory
+ * while still refusing anything arbitrary.
+ */
+function looksLikeStockPresetSkillDir(value: string): boolean {
+  const normalized = value.replace(/\\/gu, '/').replace(/\/+$/u, '')
+  return normalized.endsWith('/skills') && normalized.slice(0, -'/skills'.length).endsWith('dsh-agent-preset')
+}
+
 function supportedConfiguration(
   configuration: StockSkillRuntimeConfiguration,
 ): configuration is StockSkillRuntimeConfiguration & { readonly presetId: 'standard' } {
@@ -307,7 +378,11 @@ function supportedConfiguration(
     && configuration.providerName === 'filesystem'
     && configuration.includeDefaultRoots
     && (configuration.stockPresetSkillDir === undefined
+      // Nothing resolved the preset directory, so the preset's own entry has to be
+      // recognised by shape. Without this, every host that keeps the preset inside
+      // an asar fails here even though the composition is exactly the official one.
       ? configuration.customSkillDirs.length === 0
+        || (configuration.customSkillDirs.length === 1 && looksLikeStockPresetSkillDir(configuration.customSkillDirs[0]!))
       : configuration.customSkillDirs.length === 1
         && configuration.customSkillDirs[0] === configuration.stockPresetSkillDir)
 }
