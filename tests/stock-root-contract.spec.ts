@@ -187,6 +187,28 @@ describe('stock DSH root contract', () => {
     await expect(resolveStockSkillRuntimeConfiguration(withoutPlugin, agent, '0'.repeat(64)))
       .resolves.toBeUndefined()
 
+    // 真实 preset 文件把条目裹在 `insert` 里（standard.patch.yml 就是
+    // `- insert: [ { id, name, config } ]`），所以要能从嵌套里找到。
+    const nested = {
+      standingMountFor: () => ({
+        presetId: 'standard',
+        fiber: mount,
+        tree: {
+          root: {
+            data: [{
+              insert: [{
+                id: 'skill-filesystem',
+                name: '@deepseek-ai/dsh-skill-filesystem',
+                config: { customSkillDirs: [] },
+              }],
+            }],
+          },
+        },
+      }),
+    }
+    await expect(resolveStockSkillRuntimeConfiguration(nested, agent, '0'.repeat(64)))
+      .resolves.toMatchObject({ presetId: 'standard' })
+
     // preset 名字不是 standard 时同样拒绝，避免拿别的 preset 冒充。
     const otherPreset = {
       standingMountFor: () => ({ presetId: 'minimal', fiber: mount, tree: { root: { data: rows } } }),

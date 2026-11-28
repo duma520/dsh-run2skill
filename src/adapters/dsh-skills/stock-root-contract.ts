@@ -105,13 +105,30 @@ export function declaresStockSkillFilesystemRow(mount: StockPresetMountProjectio
   try {
     const rows: unknown = mount.tree?.root.data
     if (!Array.isArray(rows)) return false
-    return rows.some(row => (
-      typeof row === 'object'
-      && row !== null
-      && !Array.isArray(row)
-      && (row as { readonly name?: unknown }).name === '@deepseek-ai/dsh-skill-filesystem'
-    ))
+    return rows.some(row => branchDeclaresSkillFilesystem(row))
   } catch { return false }
+}
+
+const STOCK_SKILL_FILESYSTEM_PLUGIN = '@deepseek-ai/dsh-skill-filesystem'
+
+/**
+ * Looks for the stock filesystem plugin inside one preset row, at any depth.
+ *
+ * The preset file nests its entries (`- insert: [ { id, name, config } ]`) and
+ * the host rewrites each row through `prepareProfileEntries` before mounting it,
+ * which clones the row and may mark entries `disabled`. Reading one fixed shape
+ * would therefore depend on an upstream detail we do not control, so the walk
+ * follows arrays and the `insert` branch instead. It matches on the package name
+ * only: the entry `id` (`skill-filesystem`) is a local alias the preset is free to
+ * rename, and accepting it would let a row that merely happens to be called that
+ * stand in for the real plugin.
+ */
+function branchDeclaresSkillFilesystem(value: unknown, depth = 0): boolean {
+  if (depth > 4 || value === null || typeof value !== 'object') return false
+  if (Array.isArray(value)) return value.some(item => branchDeclaresSkillFilesystem(item, depth + 1))
+  const row = value as { readonly name?: unknown; readonly insert?: unknown }
+  if (row.name === STOCK_SKILL_FILESYSTEM_PLUGIN) return true
+  return branchDeclaresSkillFilesystem(row.insert, depth + 1)
 }
 
 export interface StockPresetMountPort {
